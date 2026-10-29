@@ -49,6 +49,8 @@ export const Config = z.object({
   contextWindowLimit: z.number().step(1).min(1024).volatile(),
   /** Exact model IDs with budgets that override the global context budget. */
   modelContextWindowLimits: z.dict(z.number().step(1).min(1024)).volatile(),
+  /** SSE idle deadline; default 300000 ms. */
+  streamIdleTimeoutMs: z.number().step(1).min(1000).volatile(),
 })
 
 /** The configuration one installation supplies, as the harness resolves it. */
@@ -59,6 +61,7 @@ export type Config = {
   baseUrl: Volatile<string>
   contextWindowLimit: Volatile<number>
   modelContextWindowLimits: Volatile<Record<string, number>>
+  streamIdleTimeoutMs: Volatile<number>
 }
 
 /** What this plugin calls itself in diagnostics. */
@@ -198,6 +201,7 @@ export function apply(ctx: Context, config: Config): void {
     displayName,
     contextWindowLimit: () => config.contextWindowLimit.get(),
     modelContextWindowLimits: () => config.modelContextWindowLimits.get(),
+    streamIdleTimeoutMs: () => config.streamIdleTimeoutMs.get(),
     // A listing that recovers must clear a cached provider failure in the
     // browser's model selector; see the callback's documentation.
     onListingRecovered: () => { ctx.emit('llm/adapters-updated') },

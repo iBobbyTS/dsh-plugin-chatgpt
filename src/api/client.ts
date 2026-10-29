@@ -164,6 +164,25 @@ export interface StreamTurnOptions {
   request: NeutralRequest
   endpoints?: ClientEndpoints
   signal?: AbortSignal
+  idleTimeoutMs?: number
+}
+
+/** Read a chunk with an idle deadline instead of waiting forever on a live socket. */
+export async function readWithIdleTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>, timeoutMs: number,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error('invalid stream idle timeout')
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new ApiError('ChatGPT response stream idle timeout', 'TIMEOUT')), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
 }
 
 /**
@@ -195,10 +214,11 @@ export async function* streamTurn(options: StreamTurnOptions): AsyncGenerator<Re
   const decoder = createSseDecoder()
   const reader = response.body.getReader()
   const text = new TextDecoder()
+  const idleTimeoutMs = options.idleTimeoutMs ?? 300_000
   let terminal = false
   try {
     while (!terminal) {
-      const { done, value } = await reader.read()
+      const { done, value } = await readWithIdleTimeout(reader, idleTimeoutMs)
       const payloads = done === true
         ? decoder.flush()
         : decoder.push(text.decode(value, { stream: true }))

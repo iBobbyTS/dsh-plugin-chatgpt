@@ -111,6 +111,8 @@ export interface ChatGptAdapterOptions {
   contextWindowLimit?: number | (() => number | undefined)
   /** Exact model IDs mapped to context budgets, taking precedence over the global budget. */
   modelContextWindowLimits?: Readonly<Record<string, number>> | (() => Readonly<Record<string, number>> | undefined)
+  /** Maximum idle time waiting for a streaming SSE chunk, in ms. */
+  streamIdleTimeoutMs?: number | (() => number | undefined)
   /** Clock, so the listing cache can be tested. */
   now?: () => number
   /**
@@ -232,7 +234,7 @@ export function toNeutralRequest(request: HarnessRequest, scope?: string): Neutr
  */
 async function withFreshGrant<T>(
   usable: () => Promise<ChatGptCredential>,
-  renew: () => Promise<ChatGptCredential>,
+  renew: (stale: ChatGptCredential) => Promise<ChatGptCredential>,
   call: (credential: ChatGptCredential) => Promise<T>,
 ): Promise<T> {
   const credential = await usable()
@@ -241,8 +243,9 @@ async function withFreshGrant<T>(
   } catch (error) {
     // Only an authentication refusal is worth a renewal; anything else would
     // spend a refresh token to be told the same thing again.
-    if (!isCodedError(error) || (error.status !== 401 && error.status !== 403)) throw error
-    const renewed = await renew()
+    if (!isCodedError(error) || (error.status !== 401
+      && !(error.status === 403 && (error.code === 'token_expired' || error.code === 'invalid_token')))) throw error
+    const renewed = await renew(credential)
     return await call(renewed)
   }
 }
@@ -335,6 +338,7 @@ export class ChatGptAdapter {
   private readonly includeUnlisted: boolean
   private readonly contextWindowLimit: ChatGptAdapterOptions['contextWindowLimit']
   private readonly modelContextWindowLimits: ChatGptAdapterOptions['modelContextWindowLimits']
+  private readonly streamIdleTimeoutMs: ChatGptAdapterOptions['streamIdleTimeoutMs']
   private readonly now: () => number
   private readonly onListingRecovered: (() => void) | undefined
   private listing: { at: number, models: DescribedModel[] } | undefined
@@ -351,6 +355,7 @@ export class ChatGptAdapter {
     this.includeUnlisted = options.includeUnlisted ?? true
     this.contextWindowLimit = options.contextWindowLimit
     this.modelContextWindowLimits = options.modelContextWindowLimits
+    this.streamIdleTimeoutMs = options.streamIdleTimeoutMs
     this.now = options.now ?? (() => Date.now())
     this.onListingRecovered = options.onListingRecovered
   }
@@ -389,7 +394,7 @@ export class ChatGptAdapter {
     try {
       listed = await withFreshGrant(
         () => this.auth.usable(),
-        () => this.auth.renew(),
+        credential => this.auth.renewFor(credential),
         credential => listModels(credential.accessToken, ...this.baseUrl === undefined ? [] : [{ baseUrl: this.baseUrl }]),
       )
     } catch (error) {
@@ -530,7 +535,7 @@ export class ChatGptAdapter {
     try {
       ({ events, primed, translator } = await withFreshGrant(
         () => this.auth.usable(request.signal),
-        () => this.auth.renew(request.signal),
+        credential => this.auth.renewFor(credential, request.signal),
         // A generator is lazy, so a refused token would not surface until the
         // first read. Reading one step inside the retry is what lets the refusal
         // be answered here, before the caller has seen anything — and the event
@@ -542,6 +547,8 @@ export class ChatGptAdapter {
           const started = streamTurn({
             accessToken: credential.accessToken,
             request: neutral,
+            idleTimeoutMs: typeof this.streamIdleTimeoutMs === 'function'
+              ? this.streamIdleTimeoutMs() : this.streamIdleTimeoutMs,
             ...this.baseUrl === undefined ? {} : { endpoints: { baseUrl: this.baseUrl } },
             ...request.signal === undefined ? {} : { signal: request.signal },
           })

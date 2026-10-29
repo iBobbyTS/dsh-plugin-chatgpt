@@ -26,6 +26,7 @@
 
 import { EXPIRY_MARGIN_MS, SCOPE, RESOURCE, AUTHORIZE_URL, TOKEN_URL, DIRECT_TOKEN_SCOPE, DYNAMIC_CLIENT_ID, AUTHORIZATION_TIMEOUT_MS, PREFERRED_CALLBACK_PORT, CALLBACK_PATH, CALLBACK_HOST } from './protocol.ts'
 import { generatePkce, randomValue } from './pkce.ts'
+import { verifyOpenAiIdTokenSignature } from './verify-id-token.ts'
 import { startCallbackListener, type CallbackListener, type CallbackQuery } from './callback-server.ts'
 import type { ChatGptCredential } from './credential.ts'
 
@@ -72,6 +73,8 @@ export interface SignInOptions {
   tokenUrl?: string
   /** How long to wait for a callback before giving up. */
   timeoutMs?: number
+  /** Test-only injection: production defaults to OpenAI JWKS signature verification. */
+  verifyIdTokenSignature?: (token: string) => Promise<void>
   /** Called once the listener is bound, with the URI the human's browser will return to. */
   onListening?: (redirectUri: string) => void
 }
@@ -131,7 +134,7 @@ interface IdTokenClaims {
   [claim: string]: unknown
 }
 
-/** Decode one JWT payload without verifying it; {@link validateIdToken} does the checking. */
+/** Decode claims after the caller has verified the token signature against the issuer JWKS. */
 function decodeJwtPayload(token: string): IdTokenClaims | undefined {
   const parts = token.split('.')
   if (parts.length !== 3) return undefined
@@ -154,12 +157,8 @@ function requireString(value: unknown, field: string): string {
 /**
  * Check the claims this flow depends on.
  *
- * Signature verification against OpenAI's published JWKS is documented
- * separately and is not performed here; this validates the claims that decide
- * whether the grant may be used, and reports the account identity the host
- * stores. The token arrives over TLS directly from the token endpoint in
- * response to this host's own PKCE-protected exchange, which is the case these
- * checks defend.
+ * The sign-in exchange verifies the JWKS signature before calling this
+ * claims validator. Do not use this function alone to trust an unverified JWT.
  *
  * @param token - the ID token from the token response.
  * @param expectedAudience - the issued client id the token must be addressed to.
@@ -186,7 +185,7 @@ export function validateIdToken(
     throw new Error('the ID token carries a different nonce than this sign-in attempt')
   }
   const expiry = claims.exp
-  if (typeof expiry === 'number' && expiry * 1000 <= Date.now()) {
+  if (typeof expiry !== 'number' || !Number.isFinite(expiry) || expiry * 1000 <= Date.now()) {
     throw new Error('the ID token is already expired')
   }
   const subject = requireString(claims.sub, 'sub')
@@ -307,6 +306,7 @@ export async function beginSignIn(options: SignInOptions): Promise<SignInAttempt
     if (typeof expiresIn !== 'number' || !Number.isFinite(expiresIn) || expiresIn <= 0) {
       throw new Error('the token response carries no usable expires_in')
     }
+    await (options.verifyIdTokenSignature ?? verifyOpenAiIdTokenSignature)(idToken)
     const identity = validateIdToken(idToken, clientId, nonce)
     resolveResult({
       accessToken: access,

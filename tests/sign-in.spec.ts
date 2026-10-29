@@ -39,6 +39,7 @@ describe('beginSignIn', () => {
       })
       closers.push(token.close)
       const attempt = await beginSignIn({
+      verifyIdTokenSignature: async () => {}, // synthetic unsigned JWT fixtures; production verifies JWKS
         agentHostId: AGENT_HOST_ID, agentNameHint: 'Test', tokenUrl: token.url, preferredPort: 0,
       })
       const params = paramsOf(attempt.authorizationUrl)
@@ -54,6 +55,7 @@ describe('beginSignIn', () => {
     const token = await startTokenServer({ body: {} })
     closers.push(token.close)
     const attempt = await beginSignIn({
+      verifyIdTokenSignature: async () => {}, // synthetic unsigned JWT fixtures; production verifies JWKS
       agentHostId: AGENT_HOST_ID,
       agentNameHint: 'DeepSeek Harness',
       tokenUrl: token.url,
@@ -86,6 +88,7 @@ describe('beginSignIn', () => {
     const token = await startTokenServer({ body: {} })
     closers.push(token.close)
     const attempt = await beginSignIn({
+      verifyIdTokenSignature: async () => {}, // synthetic unsigned JWT fixtures; production verifies JWKS
       agentHostId: AGENT_HOST_ID,
       agentNameHint: 'DeepSeek Harness',
       tokenUrl: token.url,
@@ -108,6 +111,7 @@ describe('beginSignIn', () => {
     const token = await startTokenServer({ body: {} })
     closers.push(token.close)
     const attempt = await beginSignIn({
+      verifyIdTokenSignature: async () => {}, // synthetic unsigned JWT fixtures; production verifies JWKS
       agentHostId: AGENT_HOST_ID,
       agentNameHint: 'DeepSeek Harness',
       tokenUrl: token.url,
@@ -137,6 +141,7 @@ describe('beginSignIn', () => {
     })
     closers.push(token.close)
     const attempt = await beginSignIn({
+      verifyIdTokenSignature: async () => {}, // synthetic unsigned JWT fixtures; production verifies JWKS
       agentHostId: AGENT_HOST_ID,
       agentNameHint: 'DeepSeek Harness',
       tokenUrl: token.url,
@@ -187,6 +192,7 @@ describe('beginSignIn', () => {
     })
     closers.push(token.close)
     const attempt = await beginSignIn({
+      verifyIdTokenSignature: async () => {}, // synthetic unsigned JWT fixtures; production verifies JWKS
       agentHostId: AGENT_HOST_ID,
       agentNameHint: 'DeepSeek Harness',
       tokenUrl: token.url,
@@ -206,6 +212,7 @@ describe('beginSignIn', () => {
     const token = await startTokenServer({ body: {} })
     closers.push(token.close)
     const attempt = await beginSignIn({
+      verifyIdTokenSignature: async () => {}, // synthetic unsigned JWT fixtures; production verifies JWKS
       agentHostId: AGENT_HOST_ID,
       agentNameHint: 'DeepSeek Harness',
       tokenUrl: token.url,
@@ -232,6 +239,7 @@ describe('beginSignIn', () => {
     })
     closers.push(token.close)
     const attempt = await beginSignIn({
+      verifyIdTokenSignature: async () => {}, // synthetic unsigned JWT fixtures; production verifies JWKS
       agentHostId: AGENT_HOST_ID,
       agentNameHint: 'DeepSeek Harness',
       tokenUrl: token.url,
@@ -249,6 +257,7 @@ describe('beginSignIn', () => {
     const token = await startTokenServer({ body: {} })
     closers.push(token.close)
     const attempt = await beginSignIn({
+      verifyIdTokenSignature: async () => {}, // synthetic unsigned JWT fixtures; production verifies JWKS
       agentHostId: AGENT_HOST_ID,
       agentNameHint: 'DeepSeek Harness',
       tokenUrl: token.url,
@@ -266,6 +275,7 @@ describe('beginSignIn', () => {
     const token = await startTokenServer({ body: {} })
     closers.push(token.close)
     const attempt = await beginSignIn({
+      verifyIdTokenSignature: async () => {}, // synthetic unsigned JWT fixtures; production verifies JWKS
       agentHostId: AGENT_HOST_ID,
       agentNameHint: 'DeepSeek Harness',
       tokenUrl: token.url,
