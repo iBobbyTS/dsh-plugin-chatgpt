@@ -13,7 +13,7 @@ export function normalizeFailureCode(code: string, message: string, status?: num
   if (wire === 'subscription_sharing_usage_limit_exceeded') return 'QUOTA'
   if (wire === 'subscription_sharing_usage_unavailable' || wire === 'subscription_sharing_user_unavailable') return 'SERVER'
   if (classifiers.isContextWindowExceededError?.(detail)
-    || /context[\\s_-]*(?:length|window)[\\s_-]*(?:exceeded|overflow|limit)/i.test(detail)
+    || /context[\s_-]*(?:length|window)[\s_-]*(?:exceeded|overflow|limit)/i.test(detail)
     || /(?:request|prompt|input) (?:is )?too (?:large|long) for (?:the )?(?:model )?context/i.test(detail)) {
     return 'CONTEXT_WINDOW_EXCEEDED'
   }

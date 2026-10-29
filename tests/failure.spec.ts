@@ -7,6 +7,7 @@ import { BlockTranslator } from '../src/convert/blocks.ts'
 describe('DSH recovery classification', () => {
   it('maps context exhaustion into the compaction handler', () => {
     assert.equal(normalizeFailureCode('context_length_exceeded', 'input too long'), 'CONTEXT_WINDOW_EXCEEDED')
+    assert.equal(normalizeFailureCode('unknown_error', 'context length exceeded'), 'CONTEXT_WINDOW_EXCEEDED')
     assert.equal(normalizeFailureCode('invalid_request_error', 'request too large for the model context window', 400), 'CONTEXT_WINDOW_EXCEEDED')
     assert.equal(normalizeFailureCode('invalid_request_error', 'unsupported temperature', 400), 'invalid_request_error')
   })
