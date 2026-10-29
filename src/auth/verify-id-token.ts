@@ -13,7 +13,7 @@ async function issuerKeys(): Promise<readonly Jwk[]> {
     throw new Error('OpenAI OIDC discovery returned an unexpected issuer or JWKS endpoint')
   }
   const jwksUri = new URL(metadata.jwks_uri)
-  if (jwksUri.protocol !== 'https:' || jwksUri.hostname !== 'auth.openai.com') {
+  if (jwksUri.protocol !== 'https:' || (jwksUri.hostname !== 'openai.com' && !jwksUri.hostname.endsWith('.openai.com'))) {
     throw new Error('OpenAI OIDC discovery returned an untrusted JWKS host')
   }
   const keysResponse = await fetch(jwksUri, { signal: AbortSignal.timeout(10_000) })

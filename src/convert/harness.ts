@@ -1,4 +1,5 @@
-import { offloadedImageText, type GenerateOptions } from '@deepseek-ai/dsh-llm'
+import * as llm from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { HarnessMessage, HarnessRequest } from '../adapter.ts'
 
 /** Translate one harness request into what the adapter reads. */
@@ -63,7 +64,9 @@ export async function requestOfWithImages(options: GenerateOptions, readImage?: 
     content: await Promise.all(message.content.map(async (block, blockIndex) => {
       if (block.type !== 'image') return request.messages[messageIndex]!.content[blockIndex]!
       if (block.offloaded === true) {
-        return { type: 'text' as const, text: offloadedImageText(block.attachment) }
+        const hostFormat = (llm as { offloadedImageText?: (ref: typeof block.attachment) => string }).offloadedImageText
+        return { type: 'text' as const, text: hostFormat?.(block.attachment)
+          ?? `[image offloaded by DSH to fit model input limits: ${block.attachment.attachmentId}]` }
       }
       if (readImage === undefined) {
         throw new Error('ChatGPT vision input needs the DSH attachment store; image content was not sent')
