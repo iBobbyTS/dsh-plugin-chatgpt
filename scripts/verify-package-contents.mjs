@@ -18,7 +18,9 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { readdirSync, statSync } from 'node:fs'
+import { readdirSync, mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import assert from 'node:assert/strict'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -152,3 +154,33 @@ console.log(
   `package contents verified: ${String(entry.files.length)} files, `
   + `${String(entry.size)} bytes, every lib module and the bundle patch included`,
 )
+
+// Exercise the documented public auth entry from the actual tarball, outside
+// this checkout's self-reference and development source tree.
+const temporary = mkdtempSync(join(tmpdir(), 'chatgpt-packed-auth-'))
+try {
+  const raw = execFileSync('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', temporary], {
+    cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+  })
+  const report = jsonDocuments(raw).flatMap(packReports).find(item => typeof item?.filename === 'string')
+  assert.ok(report, 'npm must produce a tarball')
+  const installed = join(temporary, 'node_modules', 'dsh-plugin-chatgpt')
+  mkdirSync(installed, { recursive: true })
+  execFileSync('tar', ['-xzf', join(temporary, report.filename), '-C', installed, '--strip-components=1'])
+  const readmeImport = "import { ChatGptAuth } from 'dsh-plugin-chatgpt/auth'"
+  for (const path of ['README.md', 'docs/README.zh.md']) {
+    assert.ok(readFileSync(join(root, path), 'utf8').includes(readmeImport), path + ' must use the public auth entry')
+  }
+  const packedManifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'))
+  assert.equal(packedManifest.exports['./auth'].types, './lib/types/auth/manager.d.ts')
+  assert.ok(readFileSync(join(installed, packedManifest.exports['./auth'].types), 'utf8').includes('class ChatGptAuth'))
+  const entry = join(temporary, 'verify.mjs')
+  writeFileSync(entry, readmeImport + `
+    import assert from 'node:assert/strict';
+    const auth = new ChatGptAuth({ stateDir: process.argv[2], agentNameHint: 'Packed auth test' });
+    assert.equal(auth.status().signedIn, false);
+    assert.equal(typeof auth.begin, 'function');
+  `)
+  execFileSync(process.execPath, [entry, join(temporary, 'state')], { cwd: temporary, stdio: 'inherit' })
+  console.log('packed auth export verified: README import and constructor work outside the checkout')
+} finally { rmSync(temporary, { recursive: true, force: true }) }

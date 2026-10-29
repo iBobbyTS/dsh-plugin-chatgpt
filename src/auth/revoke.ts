@@ -45,6 +45,8 @@ export interface RevokeOptions {
   discoveryUrl?: string
   /** Override the revocation endpoint (tests). */
   revocationEndpoint?: string
+  /** Deadline for discovery, requests, bodies, and retries together (default 10s). */
+  timeoutMs?: number
   /** Cancellation. */
   signal?: AbortSignal
 }
@@ -59,6 +61,7 @@ let discovered: string | undefined
  * @returns the endpoint to post to.
  */
 async function revocationEndpoint(options: RevokeOptions): Promise<string> {
+  options.signal?.throwIfAborted()
   if (options.revocationEndpoint !== undefined) return options.revocationEndpoint
   if (discovered !== undefined) return discovered
   try {
@@ -84,11 +87,15 @@ async function revocationEndpoint(options: RevokeOptions): Promise<string> {
 /** Wait before one retry, without holding an aborted attempt open. */
 function backoff(attempt: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, BASE_BACKOFF_MS * 2 ** attempt)
-    signal?.addEventListener('abort', () => {
+    const done = () => { signal?.removeEventListener('abort', aborted); resolve() }
+    const timer = setTimeout(done, BASE_BACKOFF_MS * 2 ** attempt)
+    const aborted = () => {
       clearTimeout(timer)
+      signal?.removeEventListener('abort', aborted)
       reject(new Error('revocation was cancelled'))
-    }, { once: true })
+    }
+    if (signal?.aborted) aborted()
+    else signal?.addEventListener('abort', aborted, { once: true })
   })
 }
 
@@ -103,13 +110,14 @@ function backoff(attempt: number, signal?: AbortSignal): Promise<void> {
  * @param options - endpoint overrides and cancellation.
  * @returns whether the server confirmed the revocation.
  */
-export async function revokeGrant(
+async function performRevocation(
   credential: ChatGptCredential,
   options: RevokeOptions = {},
 ): Promise<RevocationResult> {
   const endpoint = await revocationEndpoint(options)
   let lastReason = 'the revocation request did not complete'
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    if (options.signal?.aborted) return { confirmed: false, reason: String(options.signal.reason) }
     if (attempt > 0) {
       try {
         await backoff(attempt - 1, options.signal)
@@ -141,4 +149,27 @@ export async function revokeGrant(
     }
   }
   return { confirmed: false, reason: lastReason }
+}
+
+/** Bound the complete remote flow, including discovery and response bodies. */
+export async function revokeGrant(
+  credential: ChatGptCredential,
+  options: RevokeOptions = {},
+): Promise<RevocationResult> {
+  const controller = new AbortController()
+  const signal = options.signal === undefined ? controller.signal : AbortSignal.any([controller.signal, options.signal])
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let onAbort: (() => void) | undefined
+  try {
+    const interrupted = new Promise<RevocationResult>(resolve => {
+      onAbort = () => resolve({ confirmed: false, reason: String(signal.reason ?? 'revocation was cancelled') })
+      if (signal.aborted) onAbort()
+      else signal.addEventListener('abort', onAbort, { once: true })
+      timer = setTimeout(() => controller.abort(new Error('revocation timed out')), options.timeoutMs ?? 10_000)
+    })
+    return await Promise.race([interrupted, performRevocation(credential, { ...options, signal }).catch(error => ({ confirmed: false, reason: String(error) }))])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+    if (onAbort !== undefined) signal.removeEventListener('abort', onAbort)
+  }
 }

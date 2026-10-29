@@ -336,6 +336,9 @@ function pluginCodedError(message: string, code: string): CodedError {
  * @returns the coded failure to report.
  */
 function codedCredentialFailure(auth: ChatGptAuth, error: unknown): CodedError {
+  if (isCodedError(error) && error.code === 'stream_ended_early') {
+    return Object.assign(new Error(error.message, { cause: error }), { code: 'TRANSPORT' })
+  }
   if (error instanceof RefreshRefusedError) return credentialFailure(auth, error)
   return isCodedError(error) ? error : credentialFailure(auth, error)
 }
@@ -387,7 +390,8 @@ export class ChatGptAdapter {
   private readonly onListingRecovered: (() => void) | undefined
   private readonly stateDir: string | undefined
   private readonly onModelSwitchesChanged: (() => void) | undefined
-  private listing: { at: number, models: DescribedModel[] } | undefined
+  private listingGeneration = 0
+  private listing: { namespace: string | undefined, at: number, models: DescribedModel[] } | undefined
   /** Whether the most recent listing attempt failed, so the next success can announce it. */
   private listingFailed = false
 
@@ -621,8 +625,11 @@ export class ChatGptAdapter {
    * @returns the describable models, before any switches are applied.
    */
   private async rosterModels(): Promise<readonly DescribedModel[]> {
+    const namespace = this.auth.active()?.replayNamespace
+    const generation = this.listingGeneration
     const cached = this.listing
-    if (cached !== undefined && this.now() - cached.at < LISTING_TTL_MS) return cached.models
+    if (cached !== undefined && cached.namespace === namespace && this.auth.active() !== undefined
+      && this.now() - cached.at < LISTING_TTL_MS) return cached.models
     // No account is an empty roster, not a failure: the route exists and is
     // waiting for a sign-in, and a throwing listing would make the selector
     // unusable before the first one.
@@ -635,6 +642,7 @@ export class ChatGptAdapter {
         credential => listModels(credential.accessToken, ...this.baseUrl === undefined ? [] : [{ baseUrl: this.baseUrl }]),
       )
     } catch (error) {
+      if (generation !== this.listingGeneration || this.auth.active()?.replayNamespace !== namespace) return []
       this.listingFailed = true
       // Listing shares the credential rules with a turn: a refused refresh is a
       // dead grant, not a listing the human can retry. Mapping it through
@@ -642,8 +650,10 @@ export class ChatGptAdapter {
       // card stop claiming a dead grant is still signed in.
       throw codedCredentialFailure(this.auth, error)
     }
+    if (generation !== this.listingGeneration || this.auth.active()?.replayNamespace !== namespace
+      || this.auth.active() === undefined) return []
     const models = this.rosterOf(listed)
-    this.listing = { at: this.now(), models }
+    this.listing = { namespace, at: this.now(), models }
     if (this.listingFailed) {
       this.listingFailed = false
       // The model selector can cache a provider failure, and its Retry may read
@@ -733,6 +743,7 @@ export class ChatGptAdapter {
 
   /** Drop the cached listing, so the next question re-asks the account. */
   forgetListing(): void {
+    this.listingGeneration += 1
     this.listing = undefined
   }
 
@@ -821,7 +832,7 @@ export class ChatGptAdapter {
       for (const chunk of translator.endAll()) yield chunk
       // Already coded when it came from the client; otherwise name it here so the
       // host has something better than an unknown failure to report.
-      if (isCodedError(error)) throw error
+      if (isCodedError(error)) throw codedCredentialFailure(this.auth, error)
       const message = error instanceof Error ? error.message : String(error)
       // A stream cut short is retryable, and the harness retries exactly the codes
       // its policy names; anything else keeps the honest protocol-error code.

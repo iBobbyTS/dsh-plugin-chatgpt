@@ -170,24 +170,20 @@ export class ChatGptSession {
     try {
       const attempt = await this.auth.begin()
       this.pending = attempt
-      this.completing = attempt.result.then(
-        (credential) => {
-          if (this.pending !== attempt) return
-          this.auth.adopt(credential)
-          // The roster is per account, so a listing produced by the previous
-          // account must not outlive the sign-in that replaces it.
-          this.adapter.forgetListing()
-          this.pending = undefined
-          // The account can serve models now, and a selector that is holding the
-          // empty catalog from before this sign-in has no other way to learn it.
-          this.onRosterChanged()
-        },
-        (error: unknown) => {
-          if (this.pending !== attempt) return
-          this.lastError = error instanceof Error ? error.message : String(error)
-          this.pending = undefined
-        },
-      )
+      this.completing = attempt.result.then((credential) => {
+        if (this.pending !== attempt) return
+        this.auth.adopt(credential)
+        // A listing from the previous account must not outlive its authorization.
+        this.adapter.forgetListing()
+        // Tell selectors holding the old catalog that the roster changed.
+        this.onRosterChanged()
+        this.pending = undefined
+      }).catch((error: unknown) => {
+        // Catch failures in adoption and notification as well as the exchange.
+        if (this.pending !== attempt) return
+        this.lastError = error instanceof Error ? error.message : String(error)
+        this.pending = undefined
+      })
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error)
     }

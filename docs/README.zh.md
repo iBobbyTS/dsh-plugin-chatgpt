@@ -62,7 +62,7 @@ dsh --profile <name> --dump-config   # shows a "# == dsh-plugin-chatgpt" layer
 无头 harness 不需要浏览器，可以直接驱动同一个会话对象：
 
 ```js
-import { ChatGptAuth } from 'dsh-plugin-chatgpt/src/auth/manager.ts'
+import { ChatGptAuth } from 'dsh-plugin-chatgpt/auth'
 
 const auth = new ChatGptAuth({
   stateDir: `${process.env.DSH_HOME ?? `${process.env.HOME}/.dsh`}/chatgpt-subscription`,

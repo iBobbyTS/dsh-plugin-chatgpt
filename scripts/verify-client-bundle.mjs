@@ -118,7 +118,17 @@ let installed
  * accessor, because that form demands a declared dependency on a service the bundle
  * itself installs.
  */
+const disposers = []
+const styles = []
+const document = {
+  createElement(tag) {
+    assert.equal(tag, 'style')
+    return { dataset: {}, textContent: '', remove() { styles.splice(styles.indexOf(this), 1) } }
+  },
+  head: { appendChild(element) { styles.push(element) } },
+}
 const ctx = {
+  effect(install) { disposers.push(install()) },
   remote: {
     // Nothing in the generated aggregate carries this plugin's namespace, so the
     // bundle mounts its own. A bundle that stopped doing that would leave the card
@@ -141,7 +151,19 @@ const ctx = {
   },
 }
 
-exports.apply(ctx)
+// Exercise the actual DOM effect and its disposal, including overlapping fibers.
+const previousDocument = globalThis.document
+globalThis.document = document
+try { exports.apply(ctx) } finally {
+  if (previousDocument === undefined) delete globalThis.document
+  else globalThis.document = previousDocument
+}
+assert.equal(styles.length, 1)
+assert.equal(styles[0].dataset.dshPluginChatgpt, 'card-styles')
+assert.ok(styles[0].textContent.includes('.dsh-chatgpt-'))
+assert.equal(disposers.length, 1)
+disposers[0]()
+assert.equal(styles.length, 0, 'disposing the fiber must remove its stylesheet')
 
 assert.equal(registered.length, 1, 'apply must inject into exactly one slot')
 assert.equal(registered[0].name, 'settings.models.provider-card')
@@ -155,7 +177,8 @@ assert.equal(mounted.length, 1, 'the bundle must mount exactly one Remote contri
 assert.equal(mounted[0].package, packageName)
 assert.deepEqual(
   mounted[0].descriptors.map(descriptor => `${descriptor.namespace}/${descriptor.method}`),
-  ['chatgpt/status', 'chatgpt/begin', 'chatgpt/submit', 'chatgpt/cancel', 'chatgpt/signOut'],
+  ['chatgpt/status', 'chatgpt/begin', 'chatgpt/submit', 'chatgpt/cancel', 'chatgpt/signOut',
+    'chatgpt/modelSwitches', 'chatgpt/setModelDisabled', 'chatgpt/setModelName', 'chatgpt/resetModels'],
   'every method the card calls must be mounted, or the call fails at the click',
 )
 

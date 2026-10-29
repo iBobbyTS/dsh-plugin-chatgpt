@@ -34,6 +34,10 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./auth": {
+      "types": "./lib/types/auth/manager.d.ts",
+      "default": "./lib/auth/manager.js"
+    },
     "./package.json": "./package.json",
     "./client": {
       "default": "./lib/client.js"

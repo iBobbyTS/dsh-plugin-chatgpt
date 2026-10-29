@@ -28,6 +28,8 @@ import { canSpendPlan, isFresh, isReplayNamespace, type ChatGptCredential } from
 import type { ChatGptRegistration } from './store.ts'
 import { revokeGrant, type RevocationResult, type RevokeOptions } from './revoke.ts'
 
+class StorageBusyError extends Error {}
+
 /** What the UI may know about this installation's ChatGPT access. */
 export interface ChatGptStatus {
   /** Whether at least one account is authorized and can spend its plan. */
@@ -104,8 +106,9 @@ export class ChatGptAuth {
       } catch (staleError) {
         if ((staleError as NodeJS.ErrnoException).code !== 'ENOENT') throw staleError
       }
-      try { handle = openSync(lock, 'wx', 0o600) } catch {
-        throw new Error('ChatGPT credentials are being updated; retry the account operation shortly')
+      try { handle = openSync(lock, 'wx', 0o600) } catch (retryError) {
+        if ((retryError as NodeJS.ErrnoException).code !== 'EEXIST') throw retryError
+        throw new StorageBusyError('ChatGPT credentials are being updated; retry the account operation shortly')
       }
     }
     this.mutationLocked = true
@@ -113,6 +116,19 @@ export class ChatGptAuth {
       this.mutationLocked = false
       closeSync(handle)
       unlinkSync(lock)
+    }
+  }
+
+  /** Wait for short cross-process transactions without blocking their event loop.
+   * After rotation succeeds, retain that result here until it is committed: the
+   * old refresh token has already been consumed and must never be exchanged again. */
+  private async mutateAsync<T>(task: () => T, signal?: AbortSignal): Promise<T> {
+    for (;;) {
+      signal?.throwIfAborted()
+      try { return this.mutate(task) } catch (error) {
+        if (!(error instanceof StorageBusyError)) throw error
+        await new Promise<void>(resolve => setTimeout(resolve, 20))
+      }
     }
   }
 
@@ -223,7 +239,7 @@ export class ChatGptAuth {
   /** Refresh under a cross-process file lock; another process may have rotated this grant first. */
   private async runRefresh(current: ChatGptCredential, signal?: AbortSignal): Promise<ChatGptCredential> {
     return withCredentialFileLock(`${this.file}.refresh`, async () => {
-      const document = this.mutate(() => readDocument(this.file))
+      const document = await this.mutateAsync(() => readDocument(this.file), signal)
       const key = Object.entries(document?.accounts ?? {})
         .find(([, stored]) => stored.replayNamespace === current.replayNamespace)?.[0]
       if (document === undefined || key === undefined) {
@@ -241,9 +257,9 @@ export class ChatGptAuth {
         ...this.options.endpoints?.tokenUrl === undefined ? {} : { tokenUrl: this.options.endpoints.tokenUrl },
         signal: refreshSignal,
       })
-      this.mutate(() => {
+      await this.mutateAsync(() => {
         const reloaded = readDocument(this.file)
-        if (reloaded === undefined || reloaded.accounts[key]?.refreshToken !== latest.refreshToken) {
+        if (reloaded === undefined || (reloaded.accounts[key]?.refreshToken !== latest.refreshToken || reloaded.accounts[key]?.replayNamespace !== latest.replayNamespace)) {
           throw new Error('the authorization changed or was removed during refresh')
         }
         this.save({ ...reloaded, accounts: { ...reloaded.accounts, [key]: rotated } })

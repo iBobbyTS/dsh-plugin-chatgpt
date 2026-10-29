@@ -62,7 +62,7 @@ Signing out revokes the renewable session at the authorization server before cle
 A headless harness drives the same session object with no browser at all:
 
 ```js
-import { ChatGptAuth } from 'dsh-plugin-chatgpt/src/auth/manager.ts'
+import { ChatGptAuth } from 'dsh-plugin-chatgpt/auth'
 
 const auth = new ChatGptAuth({
   stateDir: `${process.env.DSH_HOME ?? `${process.env.HOME}/.dsh`}/chatgpt-subscription`,
