@@ -78,10 +78,10 @@
     "verify:package": "node scripts/verify-package-contents.mjs"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": ">=0.0.1-rc.1 <0.1.0 || >=0.1.0-rc.1 <0.2.0 || >=0.2.0-rc.1 <0.3.0",
-    "@deepseek-ai/dsh-llm": ">=0.0.1-rc.1 <0.1.0 || >=0.1.0-rc.1 <0.2.0 || >=0.2.0-rc.1 <0.3.0",
-    "@deepseek-ai/dsh-typert-protocol": ">=0.0.1-rc.1 <0.1.0 || >=0.1.0-rc.1 <0.2.0 || >=0.2.0-rc.1 <0.3.0",
-    "@deepseek-ai/schemastery": ">=0.0.1-rc.1 <0.1.0 || >=0.1.0-rc.1 <0.2.0 || >=0.2.0-rc.1 <0.3.0"
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-llm": ">=0.0.1-rc.1 <0.1.0 || >=0.1.0-rc.1 <0.2.0 || >=0.2.0-rc.1 <0.3.0 || >=0.2.1-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-typert-protocol": ">=0.0.1-rc.1 <0.1.0 || >=0.1.0-rc.1 <0.2.0 || >=0.2.0-rc.1 <0.3.0 || >=0.2.1-rc.1 <0.3.0",
+    "@deepseek-ai/schemastery": "^3.18.5 || >=3.18.6-alpha.1 <3.18.6"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
@@ -98,6 +98,10 @@
     }
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.5",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.3",
+    "@deepseek-ai/schemastery": "3.18.6-alpha.1",
     "@types/node": "^22.20.5",
     "@types/react": "^18.3.31",
     "esbuild": "^0.25.12",
