@@ -1,4 +1,4 @@
-import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
+import { offloadedImageText, type GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { HarnessMessage, HarnessRequest } from '../adapter.ts'
 
 /** Translate one harness request into what the adapter reads. */
@@ -46,4 +46,39 @@ export function requestOf(options: GenerateOptions): HarnessRequest {
     },
     ...options.signal === undefined ? {} : { signal: options.signal },
   }
+}
+
+/** Minimal attachment-store read contract; resolved by the host per request. */
+export type ReadImage = (ref: unknown, signal?: AbortSignal) => Promise<{
+  data: Uint8Array
+  ref: { mediaType: string }
+}>
+
+/** Resolve durable DSH image references to SIWC input_image data URLs, preserving block order. */
+export async function requestOfWithImages(options: GenerateOptions, readImage?: ReadImage): Promise<HarnessRequest> {
+  const request = requestOf(options)
+  if (!options.messages.some(message => message.content.some(block => block.type === 'image'))) return request
+  const messages = await Promise.all(options.messages.map(async (message, messageIndex) => ({
+    ...request.messages[messageIndex]!,
+    content: await Promise.all(message.content.map(async (block, blockIndex) => {
+      if (block.type !== 'image') return request.messages[messageIndex]!.content[blockIndex]!
+      if (block.offloaded === true) {
+        return { type: 'text' as const, text: offloadedImageText(block.attachment) }
+      }
+      if (readImage === undefined) {
+        throw new Error('ChatGPT vision input needs the DSH attachment store; image content was not sent')
+      }
+      options.signal?.throwIfAborted()
+      const stored = await readImage(block.attachment, options.signal)
+      options.signal?.throwIfAborted()
+      if (!/^image\/(png|jpeg|webp|gif)$/.test(stored.ref.mediaType) || stored.data.length === 0) {
+        throw new Error('ChatGPT vision input: unsupported or empty image attachment')
+      }
+      return {
+        type: 'image' as const,
+        url: `data:${stored.ref.mediaType};base64,${Buffer.from(stored.data).toString('base64')}`,
+      }
+    })),
+  })))
+  return { ...request, messages }
 }

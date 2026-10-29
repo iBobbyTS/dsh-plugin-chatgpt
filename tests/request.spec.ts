@@ -242,3 +242,12 @@ describe('toResponsesBody', () => {
     }
   })
 })
+
+it('does not drop a one-shot system prompt merely because the first message is developer', () => {
+  const body = toResponsesBody({ model: 'm', system: 'outer instructions',
+    messages: [{ role: 'developer', content: 'inner instructions' }, { role: 'user', content: 'go' }] })
+  assert.deepEqual(body.input.slice(0, 2).map(item => item.content), [
+    [{ type: 'input_text', text: 'outer instructions' }],
+    [{ type: 'input_text', text: 'inner instructions' }],
+  ])
+})

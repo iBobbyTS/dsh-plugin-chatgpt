@@ -67,7 +67,7 @@ function textOf(content: NeutralMessage['content']): string {
 export function toResponsesBody(request: NeutralRequest): ResponsesBody {
   const input: InputItem[] = []
   const leadingRole = request.messages[0]?.role
-  if (request.system && leadingRole !== 'system' && leadingRole !== 'developer') {
+  if (request.system && leadingRole !== 'system') {
     input.push({ type: 'message', role: 'developer', content: [{ type: 'input_text', text: request.system }] })
   }
   for (const message of request.messages) {

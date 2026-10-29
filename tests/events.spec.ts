@@ -284,3 +284,15 @@ describe('createSseDecoder', () => {
     assert.deepEqual(decoder.flush(), [])
   })
 })
+
+describe('SSE line endings', () => {
+  it('accepts CRLF frames across arbitrary read boundaries', () => {
+    const decoder = createSseDecoder()
+    assert.deepEqual(decoder.push('event: response.completed\r\ndata: {"type":"response.completed"}\r'), [])
+    assert.deepEqual(decoder.push('\n\r\n'), ['{"type":"response.completed"}'])
+  })
+  it('accepts CR-only frames and mixed line endings', () => {
+    const decoder = createSseDecoder()
+    assert.deepEqual(decoder.push('data: first\r\rdata: second\r\n\n'), ['first', 'second'])
+  })
+})

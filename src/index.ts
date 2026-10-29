@@ -25,7 +25,7 @@ import { ChatGptAuth } from './auth/manager.ts'
 import { ChatGptController } from './controller.ts'
 import { ChatGptSession } from './session.ts'
 import type { AdapterChunk } from './convert/blocks.ts'
-import { requestOf } from './convert/harness.ts'
+import { requestOfWithImages, type ReadImage } from './convert/harness.ts'
 
 /**
  * Route and endpoint policy for one installation.
@@ -127,7 +127,7 @@ export class HarnessAdapter extends LlmAdapter {
    * @param inner - the adapter that talks to the API.
    * @param route - the provider route this instance serves.
    */
-  constructor(inner: ChatGptAdapter, route: string) {
+  constructor(inner: ChatGptAdapter, route: string, private readonly readImage?: ReadImage) {
     super()
     this.inner = inner
     this.route = route
@@ -152,11 +152,9 @@ export class HarnessAdapter extends LlmAdapter {
   }
 
   override async *stream(options: GenerateOptions): AsyncGenerator<StreamChunk, void, undefined> {
-    const chunks: AsyncGenerator<AdapterChunk, void, undefined> = this.inner.stream(
-      options.provider,
-      requestOf(options),
-    )
     try {
+      const request = await requestOfWithImages(options, this.readImage)
+      const chunks: AsyncGenerator<AdapterChunk, void, undefined> = this.inner.stream(options.provider, request)
       for await (const chunk of chunks) yield chunk as unknown as StreamChunk
     } catch (error) {
       throw asHostError(error, 'chatgpt_request_failed')
@@ -206,7 +204,15 @@ export function apply(ctx: Context, config: Config): void {
     ...baseUrl.length === 0 ? {} : { baseUrl },
   })
 
-  const adapter = new HarnessAdapter(inner, route)
+  const adapter = new HarnessAdapter(inner, route, async (ref, signal) => {
+    const attachments = ctx.get('attachments') as {
+      readImage(ref: unknown, signal?: AbortSignal): Promise<{ data: Uint8Array, ref: { mediaType: string } }>
+    } | undefined
+    if (attachments === undefined) {
+      throw new LlmError('ChatGPT vision input requires the DSH attachment store', 'UNSUPPORTED')
+    }
+    return attachments.readImage(ref, signal)
+  })
   const handle: AdapterRegistrationHandle = ctx.llm.registerAdapter([route], adapter)
   ctx.effect(() => () => { handle() })
 

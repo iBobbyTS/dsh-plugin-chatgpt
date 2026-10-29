@@ -188,6 +188,8 @@ export function toNeutralRequest(request: HarnessRequest, scope?: string): Neutr
     for (const block of message.content) {
       if (block.type === 'text' && typeof block['text'] === 'string') {
         content.push({ type: 'text', text: block['text'] })
+      } else if (block.type === 'image' && typeof block['url'] === 'string') {
+        content.push({ type: 'image', url: block['url'] })
       } else if (block.type === 'tool-call') {
         const call = block as { id: string, name: string, arguments: string }
         content.push({ type: 'tool-call', id: call.id, name: call.name, arguments: call.arguments })
