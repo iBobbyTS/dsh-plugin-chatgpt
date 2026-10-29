@@ -7,11 +7,11 @@ import { toResponsesBody } from '../src/convert/request.ts'
 
 function options(offloaded = false): GenerateOptions {
   return { provider: 'chatgpt', model: 'vision',
-    messages: [{ role: 'user', content: [
+    messages: [{ id: 'image-test', source: { kind: 'user' }, role: 'user', content: [
       { type: 'text', text: 'inspect' },
       { type: 'image', attachment: { attachmentId: 'test', mediaType: 'image/png', bytes: 3, width: 1, height: 1 }, ...offloaded ? { offloaded: true as const } : {} },
       { type: 'text', text: 'done' },
-    ] }] } as GenerateOptions
+    ] }] } as unknown as GenerateOptions
 }
 describe('DSH attachment projection', () => {
   it('sends actual image bytes to Responses in their original position', async () => {

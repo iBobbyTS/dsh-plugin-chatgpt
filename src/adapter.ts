@@ -29,10 +29,16 @@ import { BlockTranslator, type AdapterChunk } from './convert/blocks.ts'
 import type { InputPart, NeutralMessage, NeutralRequest } from './convert/request.ts'
 import { accountScope, replayOutput, sessionCacheKey, type ReplayContext } from './convert/replay.ts'
 import type { ChatGptCredential } from './auth/credential.ts'
+import { withCredentialFileLock } from './auth/file-lock.ts'
+import { mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import { RESOURCE } from './auth/protocol.ts'
 import type { ResponsesEvent } from './api/events.ts'
 import { describableModels, describeModel, effortLabel, type DescribedModel, type ListedModel } from './models/describe.ts'
 import { ROUTE_MAX_CONTEXT_WINDOW, ROUTE_MAX_OUTPUT_TOKENS, SERVED_MODELS, servedRecord } from './models/served.ts'
+import {
+  readModelOverrides, writeModelOverrides, type ModelOverridesFile, type ModelSwitchView,
+} from './models/switches.ts'
 import type { ChatGptAuth } from './auth/manager.ts'
 import { RefreshRefusedError } from './auth/refresh.ts'
 
@@ -93,6 +99,9 @@ function isTransportFailure(message: string): boolean {
 /** How long a model listing is reused before the account is asked again. */
 const LISTING_TTL_MS = 60_000
 
+/** Longest hand-set display name accepted for one model. */
+const MAX_MODEL_NAME_LENGTH = 200
+
 /** What the adapter needs from the world around it. */
 export interface ChatGptAdapterOptions {
   /** The credential owner this adapter asks for a usable grant. */
@@ -125,6 +134,24 @@ export interface ChatGptAdapterOptions {
    * without a window reload.
    */
   onListingRecovered?: () => void
+  /**
+   * The installation's state directory, where the roster overrides record
+   * (switches and display names) lives.
+   *
+   * Optional so tests that never touch overrides can omit it; the override
+   * methods fail loudly when it is absent rather than pretending to remember
+   * edits.
+   */
+  stateDir?: string
+  /**
+   * Called after a roster override is persisted.
+   *
+   * The selector rebuilds its catalog only when the Host says something changed,
+   * so a toggle that hid or restored a model — or a rename it should display —
+   * would otherwise not appear until a reload. The plugin turns this into
+   * `llm/adapters-updated`, exactly as a roster change does.
+   */
+  onModelSwitchesChanged?: () => void
 }
 
 /** One model as the harness reads a listing. */
@@ -280,6 +307,23 @@ function credentialFailure(auth: ChatGptAuth, error: unknown): CodedError {
 }
 
 /**
+ * A failure this plugin itself decided on, in the coded shape its layers share.
+ *
+ * `ApiError` normalizes the codes it carries for endpoint-failure taxonomy, so a
+ * plugin-level refusal that must keep its exact code travels in this shape
+ * instead — the host boundary passes a coded error through unchanged.
+ *
+ * @param message - what the human reads.
+ * @param code - the stable machine code, kept verbatim.
+ * @returns the coded error to throw.
+ */
+function pluginCodedError(message: string, code: string): CodedError {
+  const error = new Error(message)
+  Object.assign(error, { code })
+  return error as CodedError
+}
+
+/**
  * Map a thrown credential/listing error to the failure the harness sees.
  *
  * `RefreshRefusedError` carries a `code` of its own (`CHATGPT_REFRESH_REFUSED`),
@@ -341,6 +385,8 @@ export class ChatGptAdapter {
   private readonly streamIdleTimeoutMs: ChatGptAdapterOptions['streamIdleTimeoutMs']
   private readonly now: () => number
   private readonly onListingRecovered: (() => void) | undefined
+  private readonly stateDir: string | undefined
+  private readonly onModelSwitchesChanged: (() => void) | undefined
   private listing: { at: number, models: DescribedModel[] } | undefined
   /** Whether the most recent listing attempt failed, so the next success can announce it. */
   private listingFailed = false
@@ -358,11 +404,202 @@ export class ChatGptAdapter {
     this.streamIdleTimeoutMs = options.streamIdleTimeoutMs
     this.now = options.now ?? (() => Date.now())
     this.onListingRecovered = options.onListingRecovered
+    this.stateDir = options.stateDir
+    this.onModelSwitchesChanged = options.onModelSwitchesChanged
   }
 
   /** The provider row this adapter describes. */
   providerInfo(provider: string): { id: string, name: string } {
     return { id: provider, name: this.displayName }
+  }
+
+  /**
+   * The models the selector should offer, in the server's order.
+   *
+   * The roster this account produced, minus the models the human switched off,
+   * with each hand-set display name applied. A switched-off model is hidden
+   * from the offering only: a request that names it directly still reaches the
+   * endpoint and gets its own answer, exactly as the roster itself has never
+   * been an allowlist. A renamed model keeps its id — the name is what the
+   * picker shows, never what a request carries.
+   *
+   * @returns the describable, switched-on models under their display names.
+   */
+  async listModels(): Promise<readonly DescribedModel[]> {
+    const [models, overrides] = await Promise.all([this.rosterModels(), this.modelOverrides()])
+    const offered = overrides.disabled.size === 0
+      ? models
+      : models.filter(model => !overrides.disabled.has(model.id))
+    if (overrides.names.size === 0) return offered
+    return offered.map((model) => {
+      const name = overrides.names.get(model.id)
+      return name === undefined ? model : { ...model, name }
+    })
+  }
+
+  /**
+   * Every roster model with its switch and display-name state, for the provider
+   * card.
+   *
+   * The roster is the same one the selector's offering comes from, so a switch
+   * list and a selector can never disagree about what exists — only about which
+   * entries are offered and what each is called.
+   *
+   * @returns one row per roster model, roster order.
+   */
+  async modelSwitches(): Promise<readonly ModelSwitchView[]> {
+    const [models, overrides] = await Promise.all([this.rosterModels(), this.modelOverrides()])
+    return models.map((model) => {
+      const name = overrides.names.get(model.id)
+      return {
+        id: model.id,
+        defaultName: model.name,
+        name: name ?? model.name,
+        disabled: overrides.disabled.has(model.id),
+      }
+    })
+  }
+
+  /**
+   * Switch one roster model on or off and answer the resulting switch list.
+   *
+   * @param id - the exact model id, which must be on the current roster.
+   * @param disabled - whether the selector should stop offering the model.
+   * @returns the switch list after the change is persisted.
+   * @throws {CodedError} `chatgpt_unknown_model` when the id is not on the
+   * roster, so a stale card cannot switch a model the account no longer serves.
+   */
+  async setModelDisabled(id: string, disabled: boolean): Promise<readonly ModelSwitchView[]> {
+    return this.changeModels(() => this.setModelDisabledUnlocked(id, disabled))
+  }
+
+  private async setModelDisabledUnlocked(id: string, disabled: boolean): Promise<readonly ModelSwitchView[]> {
+    await this.requireSwitchable(id)
+    const overrides = await this.storedOverrides()
+    if (disabled) overrides.disabled.add(id)
+    else overrides.disabled.delete(id)
+    return await this.commitOverrides(overrides)
+  }
+
+  /**
+   * Set one roster model's display name, or restore the roster's own.
+   *
+   * The name is display vocabulary only: the selector shows it, while requests
+   * keep carrying the id, so a rename can never break a call the way a renamed
+   * allowlist entry would.
+   *
+   * @param id - the exact model id, which must be on the current roster.
+   * @param name - the display name to store; `undefined` or blank restores the
+   * roster's own name by removing the override.
+   * @returns the switch list after the change is persisted.
+   * @throws {CodedError} `chatgpt_unknown_model` when the id is not on the
+   * roster, `chatgpt_invalid_model_switch` when the name is longer than the
+   * accepted bound.
+   */
+  async setModelName(id: string, name: string | undefined): Promise<readonly ModelSwitchView[]> {
+    return this.changeModels(() => this.setModelNameUnlocked(id, name))
+  }
+
+  private async setModelNameUnlocked(id: string, name: string | undefined): Promise<readonly ModelSwitchView[]> {
+    await this.requireSwitchable(id)
+    const trimmed = name?.trim() ?? ''
+    if (trimmed.length > MAX_MODEL_NAME_LENGTH) {
+      throw pluginCodedError(
+        `a model display name is limited to ${String(MAX_MODEL_NAME_LENGTH)} characters`,
+        'chatgpt_invalid_model_switch',
+      )
+    }
+    const overrides = await this.storedOverrides()
+    if (trimmed.length === 0) overrides.names.delete(id)
+    else overrides.names.set(id, trimmed)
+    return await this.commitOverrides(overrides)
+  }
+
+  /**
+   * Clear every switch and display-name override, restoring the roster as the
+   * account produces it.
+   *
+   * @returns the switch list after the reset is persisted.
+   * @throws {CodedError} `chatgpt_switches_unavailable` when no state directory
+   * is configured, since the reset could not be remembered.
+   */
+  async resetModels(): Promise<readonly ModelSwitchView[]> {
+    return this.changeModels(() => this.resetModelsUnlocked())
+  }
+
+  private async resetModelsUnlocked(): Promise<readonly ModelSwitchView[]> {
+    if (this.stateDir === undefined) {
+      throw pluginCodedError('model switches need the installation state directory', 'chatgpt_switches_unavailable')
+    }
+    const overrides = await this.storedOverrides()
+    if (overrides.disabled.size === 0 && overrides.names.size === 0) {
+      return await this.modelSwitches()
+    }
+    overrides.disabled.clear()
+    overrides.names.clear()
+    return await this.commitOverrides(overrides)
+  }
+
+  /**
+   * The gates every override write shares: a place to persist, and a model the
+   * roster actually carries.
+   *
+   * @param id - the exact model id a stale card may have named.
+   * @throws {CodedError} `chatgpt_switches_unavailable`, then
+   * `chatgpt_invalid_model_switch`, then `chatgpt_unknown_model`.
+   */
+  private async requireSwitchable(id: string): Promise<void> {
+    if (this.stateDir === undefined) {
+      throw pluginCodedError('model switches need the installation state directory', 'chatgpt_switches_unavailable')
+    }
+    if (id.length === 0) {
+      throw pluginCodedError('a model id is required', 'chatgpt_invalid_model_switch')
+    }
+    const roster = await this.rosterModels()
+    if (!roster.some(model => model.id === id)) {
+      throw pluginCodedError(`the roster has no model ${id}`, 'chatgpt_unknown_model')
+    }
+  }
+
+  private async changeModels(task: () => Promise<readonly ModelSwitchView[]>): Promise<readonly ModelSwitchView[]> {
+    if (this.stateDir === undefined) throw pluginCodedError('model switches need the installation state directory', 'chatgpt_switches_unavailable')
+    await mkdir(this.stateDir, { recursive: true, mode: 0o700 })
+    return withCredentialFileLock(join(this.stateDir, 'models-operation'), task)
+  }
+
+  /** The persisted overrides as a mutable working copy. */
+  private async storedOverrides(): Promise<{ disabled: Set<string>, names: Map<string, string> }> {
+    const file = this.stateDir === undefined
+      ? { disabled: [] as readonly string[], names: {} as Readonly<Record<string, string>> }
+      : await readModelOverrides(this.stateDir)
+    return { disabled: new Set(file.disabled), names: new Map(Object.entries(file.names)) }
+  }
+
+  /**
+   * Persist the working copy, announce it, and answer the fresh switch list.
+   * @param overrides - the overrides to store.
+   * @returns the switch list as the persisted state now reads.
+   */
+  private async commitOverrides(
+    overrides: { disabled: ReadonlySet<string>, names: ReadonlyMap<string, string> },
+  ): Promise<readonly ModelSwitchView[]> {
+    const stateDir = this.stateDir
+    if (stateDir === undefined) {
+      throw pluginCodedError('model switches need the installation state directory', 'chatgpt_switches_unavailable')
+    }
+    const file: ModelOverridesFile = {
+      disabled: [...overrides.disabled],
+      names: Object.fromEntries(overrides.names),
+    }
+    await writeModelOverrides(stateDir, file)
+    // The listing cache is the unfiltered roster, so nothing here invalidates
+    // it; the selector rebuilds its offering because the Host is told it changed.
+    try {
+      this.onModelSwitchesChanged?.()
+    } catch {
+      // The overrides are already persisted; a listener failure cannot undo it.
+    }
+    return await this.modelSwitches()
   }
 
   /**
@@ -381,9 +618,9 @@ export class ChatGptAdapter {
    * An account that is not signed in has no roster, which is an empty catalog
    * rather than a failure: the route exists and is waiting for a sign-in.
    *
-   * @returns the describable models.
+   * @returns the describable models, before any switches are applied.
    */
-  async listModels(): Promise<readonly DescribedModel[]> {
+  private async rosterModels(): Promise<readonly DescribedModel[]> {
     const cached = this.listing
     if (cached !== undefined && this.now() - cached.at < LISTING_TTL_MS) return cached.models
     // No account is an empty roster, not a failure: the route exists and is
@@ -440,7 +677,7 @@ export class ChatGptAdapter {
    */
   private rosterOf(listed: readonly ListedModel[]): DescribedModel[] {
     const advertised = describableModels(listed).map(model => this.withMeasurement(model))
-    const present = new Set(advertised.map(model => model.id))
+    const present = new Set(listed.map(model => model.slug))
     const extras = this.includeUnlisted
       ? SERVED_MODELS
           .filter(entry => !entry.advertised && !present.has(entry.id))
@@ -483,6 +720,17 @@ export class ChatGptAdapter {
     }
   }
 
+  /**
+   * The stored roster overrides, or empty when they cannot live anywhere. Read
+   * per call rather than cached, so an edit made in one DSH process is seen by
+   * the next listing in another.
+   */
+  private async modelOverrides(): Promise<{ disabled: ReadonlySet<string>, names: ReadonlyMap<string, string> }> {
+    if (this.stateDir === undefined) return { disabled: new Set(), names: new Map() }
+    const file = await readModelOverrides(this.stateDir)
+    return { disabled: new Set(file.disabled), names: new Map(Object.entries(file.names)) }
+  }
+
   /** Drop the cached listing, so the next question re-asks the account. */
   forgetListing(): void {
     this.listing = undefined
@@ -500,7 +748,7 @@ export class ChatGptAdapter {
    * @returns the model's metadata.
    */
   async resolveModel(provider: string, model: string): Promise<HarnessResolvedModel> {
-    const listed = (await this.listModels().catch(() => [])).find(entry => entry.id === model)
+    const listed = (await this.rosterModels().catch(() => [])).find(entry => entry.id === model)
     const described = listed ?? describableModels([{ slug: model }])[0]
     /* c8 ignore next -- describableModels always answers for a non-empty slug */
     if (described === undefined) throw new Error(`no model named "${model}"`)
@@ -544,11 +792,12 @@ export class ChatGptAdapter {
           const scope = accountScope(this.baseUrl ?? RESOURCE, credential)
           const translator = new BlockTranslator(scope === undefined ? undefined : { provider: request.provider, model: request.model, scope })
           const neutral = toNeutralRequest(request, scope)
+          const idleTimeoutMs = typeof this.streamIdleTimeoutMs === 'function'
+            ? this.streamIdleTimeoutMs() : this.streamIdleTimeoutMs
           const started = streamTurn({
             accessToken: credential.accessToken,
             request: neutral,
-            idleTimeoutMs: typeof this.streamIdleTimeoutMs === 'function'
-              ? this.streamIdleTimeoutMs() : this.streamIdleTimeoutMs,
+            ...idleTimeoutMs === undefined ? {} : { idleTimeoutMs },
             ...this.baseUrl === undefined ? {} : { endpoints: { baseUrl: this.baseUrl } },
             ...request.signal === undefined ? {} : { signal: request.signal },
           })
@@ -579,6 +828,8 @@ export class ChatGptAdapter {
       throw isTransportFailure(message)
         ? coded(`the ChatGPT response was cut short: ${message}`, 'TRANSPORT')
         : coded(message, 'chatgpt_request_failed')
+    } finally {
+      await events.return(undefined)
     }
   }
 }

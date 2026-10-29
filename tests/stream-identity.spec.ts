@@ -20,8 +20,11 @@ describe('Responses stream identity and terminal reconciliation', () => {
       assert.equal(ends.length, starts.length)
       const finish = chunks.at(-1)
       assert.ok(finish?.type === 'finish')
-      assert.notEqual(finish.reason.kind, 'error')
-      assert.equal(finish.replayState !== undefined, fixture.replay)
+      if (fixture.blocks.every(block => block.type === 'reasoning')) {
+        assert.ok(finish.reason.kind === 'error')
+        assert.equal(finish.reason.failure.code, 'EMPTY_RESPONSE')
+      } else assert.notEqual(finish.reason.kind, 'error')
+      assert.equal(finish.replayState !== undefined, finish.reason.kind === 'error' ? false : fixture.replay)
     })
   }
 })

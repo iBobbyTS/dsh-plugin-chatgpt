@@ -225,7 +225,7 @@ describe('beginSignIn', () => {
     await assert.rejects(attempt.result, /cancelled/)
   })
 
-  it('refuses a grant that is missing the plan-usage scope', async () => {
+  it('retains a valid identity without plan-usage permission', async () => {
     const token = await startTokenServer({
       reply: () => ({
         body: {
@@ -248,9 +248,8 @@ describe('beginSignIn', () => {
     const params = paramsOf(attempt.authorizationUrl)
     nonce.value = params.get('nonce') ?? ''
 
-    const refusedResult = assert.rejects(attempt.result, /chatgpt\.tokens\.use\.direct/)
     await attempt.submit(`${attempt.redirectUri}?code=c&state=${params.get('state') ?? ''}&client_id=oaiapp_x`)
-    await refusedResult
+    assert.equal((await attempt.result).scopes.includes('chatgpt.tokens.use.direct'), false)
   })
 
   it('refuses a first-registration callback that issued no client id', async () => {

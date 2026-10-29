@@ -64,9 +64,10 @@ export async function requestOfWithImages(options: GenerateOptions, readImage?: 
     content: await Promise.all(message.content.map(async (block, blockIndex) => {
       if (block.type !== 'image') return request.messages[messageIndex]!.content[blockIndex]!
       if (block.offloaded === true) {
-        const hostFormat = (llm as { offloadedImageText?: (ref: typeof block.attachment) => string }).offloadedImageText
+        const attachmentId = (block.attachment as { attachmentId: string }).attachmentId
+        const hostFormat = (llm as { offloadedImageText?: (ref: unknown) => string }).offloadedImageText
         return { type: 'text' as const, text: hostFormat?.(block.attachment)
-          ?? `[image offloaded by DSH to fit model input limits: ${block.attachment.attachmentId}]` }
+          ?? `[image offloaded by DSH to fit model input limits: ${attachmentId}]` }
       }
       if (readImage === undefined) {
         throw new Error('ChatGPT vision input needs the DSH attachment store; image content was not sent')

@@ -1,11 +1,15 @@
 /**
  * The ChatGPT card on the Models page.
  *
- * It rides the provider row's extension area rather than drawing a card of its
- * own, so the roster, capacities, and reasoning levels below it are the harness's
- * own editor and stay in step with whatever the account reports. This adds the
- * one thing the harness cannot know: whether an account is signed in, and how to
- * sign one in.
+ * It rides the provider row's extension area, and it borrows the row's own
+ * chrome: the harness renders the one-line head (provider name, status dot,
+ * actions) and opens its editor when the human presses 编辑. The card stays
+ * out of layout until that editor exists — the collapsed row is the harness's
+ * line alone — and then serves as the editor's body: the account facts, the
+ * model list behind a collapsed disclosure, and the sign-out action. The
+ * page's own editor body for this namespace (a managed-elsewhere hint plus
+ * Apply/Cancel) is hidden; the card replaces it. The seams this relies on and
+ * their fallback behavior are documented in ./styles.ts, which owns the CSS.
  *
  * The Host owns every part of the flow that touches a credential. A sign-in needs
  * a listener on this machine and ends with tokens that must never reach a page, so
@@ -15,13 +19,14 @@
  * @module dsh-plugin-chatgpt/client
  */
 
-import { Button, Input, Pill, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ClientContextServices, Context as CordisContext } from '@deepseek-ai/cordis'
 import type * as React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { REMOTE_NAMESPACE } from '../remote-methods.ts'
 import { remoteContribution } from './remote.ts'
 import { unwrap, type RemoteResult } from './result.ts'
+import { installCardStyles } from './styles.ts'
 
 /** The browser context this plugin runs against. */
 type ClientContext = CordisContext & ClientContextServices
@@ -63,6 +68,19 @@ interface SignOutOutcome {
   revocationError?: string
 }
 
+/** One roster model as the card's model list shows it. */
+interface ModelSwitchView {
+  id: string
+  /** Display name from the roster entry, before any hand-set override. */
+  defaultName: string
+  /** The name the selector shows: the hand-set override, else the roster's. */
+  name: string
+  disabled: boolean
+}
+
+/** The write this card has in flight, so the rows it touches wait. */
+type PendingWrite = { kind: 'model', id: string } | { kind: 'reset' }
+
 /** The Remote surface this card calls, as the Gateway actually resolves it. */
 interface ChatGptRemote {
   status(): Promise<RemoteResult<StatusView>>
@@ -77,6 +95,14 @@ interface ChatGptRemote {
    * page with "expected 1 argument(s), got 0".
    */
   signOut(subject: string | undefined): Promise<RemoteResult<SignOutOutcome>>
+  /** Every roster model with its switch and display-name state. */
+  modelSwitches(): Promise<RemoteResult<ModelSwitchView[]>>
+  /** Switch one roster model on or off; returns the resulting switch list. */
+  setModelDisabled(model: string, disabled: boolean): Promise<RemoteResult<ModelSwitchView[]>>
+  /** Set one model's display name; `undefined` restores the roster's own. */
+  setModelName(model: string, name: string | undefined): Promise<RemoteResult<ModelSwitchView[]>>
+  /** Clear every switch and name override; returns the resulting switch list. */
+  resetModels(): Promise<RemoteResult<ModelSwitchView[]>>
 }
 
 
@@ -133,6 +159,10 @@ export const inject = ['slots', 'remote']
  * @param ctx - the browser plugin context.
  */
 export function apply(ctx: ClientContext): void {
+  // The card's CSS addresses hashed module classes of the host page; see
+  // ./styles.ts for the seams. Disposal is the fiber's, as for any registration.
+  ctx.effect(() => installCardStyles())
+
   // Nothing in the generated aggregate carries this plugin's namespace, so it is
   // mounted here. The card waits for it to appear, which also covers the mount
   // settling after the card's first render.
@@ -152,33 +182,6 @@ export function apply(ctx: ClientContext): void {
 }
 
 /**
- * What to say about the models this account can serve.
- *
- * The card cannot list them: a selector shows the Host's own catalog. So it reports
- * how many the account offers, and says when the listing failed instead of showing
- * nothing and letting a broken call look like an empty account.
- *
- * @param roster - the count the Host reported, when it could read one.
- * @returns the line to display.
- */
-function rosterLine(roster: { count: number, error?: string } | undefined): string {
-  if (roster === undefined) return 'Checking what this account can serve…'
-  if (roster.error !== undefined) return `Could not read the model list: ${roster.error}`
-  if (roster.count === 0) return 'This account reports no models yet'
-  return `${String(roster.count)} models available in the model selector`
-}
-
-/** One line of account facts. */
-function Fact({ label, children }: { label: string, children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'baseline', fontSize: '0.8125rem' }}>
-      <span style={{ color: 'var(--dsw-alias-text-secondary, #888)', minWidth: '5rem' }}>{label}</span>
-      <span>{children}</span>
-    </div>
-  )
-}
-
-/**
  * The card itself.
  * @param props.ctx - the browser plugin context carrying the Remote namespace.
  * @param props.mounting - why mounting the Remote namespace failed, when it did.
@@ -189,6 +192,23 @@ export function ChatGptCard({ ctx, mounting }: { ctx: ClientContext, mounting: P
   const [busy, setBusy] = useState(false)
   /** Set when signing out worked locally but the server did not confirm it. */
   const [revocationNote, setRevocationNote] = useState<string | undefined>(undefined)
+  /** The roster's switch rows, once an account is being shown. */
+  const [switches, setSwitches] = useState<ModelSwitchView[] | undefined>(undefined)
+  /** Why the switch list could not be read or written, until the next attempt. */
+  const [switchesError, setSwitchesError] = useState<string | undefined>(undefined)
+  /** The write in flight, so the rows it touches wait. */
+  const [pendingWrite, setPendingWrite] = useState<PendingWrite | undefined>(undefined)
+  /** Hand-edited display names not yet committed, keyed by model id. */
+  const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({})
+  /**
+   * The card's write queue.
+   *
+   * One gesture can start two writes — leaving a name field commits it, and the
+   * same click then lands on a switch. Each write is a Host-side read-modify-write
+   * over one file, so overlapping requests could interleave into a lost update;
+   * chaining them keeps the second's read after the first's write.
+   */
+  const writeQueue = useRef<Promise<void>>(Promise.resolve())
   const urlRef = useRef<HTMLInputElement>(null)
 
   const refresh = useCallback(async () => {
@@ -220,6 +240,106 @@ export function ChatGptCard({ ctx, mounting }: { ctx: ClientContext, mounting: P
     return () => { clearInterval(timer) }
   }, [status?.pending, refresh])
 
+  // The switch list is read separately from the status, so a switch failure
+  // cannot blank the account facts. It is re-read whenever the roster changes —
+  // a sign-in turns an empty roster into a full one, and a sign-out empties it —
+  // because those are the moments the set of switchable models changes.
+  const accountShown = status !== undefined && status.needsSignIn !== true
+    && (status.signedIn || status.planUsageDenied)
+  useEffect(() => {
+    if (!accountShown) {
+      setSwitches(undefined)
+      setSwitchesError(undefined)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const remote = await waitForRemote(ctx)
+        const rows = unwrap(await remote.modelSwitches())
+        if (!cancelled) {
+          setSwitches(rows)
+          setSwitchesError(undefined)
+        }
+      } catch (error) {
+        if (!cancelled) setSwitchesError(error instanceof Error ? error.message : String(error))
+      }
+    })()
+    return () => { cancelled = true }
+  }, [ctx, accountShown, status?.roster?.count])
+
+  /**
+   * Run one roster write and adopt the switch list the Host answers with.
+   *
+   * Writes are chained on {@link writeQueue} — one gesture can legitimately
+   * start two (leaving a name field commits it, the same click lands on a
+   * switch) — so nothing here may disable controls to keep writes apart: the
+   * queue already does, and disabling is what made the next focus target drop
+   * the click and the list visibly dim while a write was in flight.
+   *
+   * @param pending - the write to mark in flight, for the row that owns it.
+   * @param write - the Remote call, answering the fresh switch list.
+   * @param onSuccess - runs with the fresh list once it is adopted; name drafts
+   * reconcile against it so committed text stays on screen until this moment.
+   */
+  const writeSwitches = useCallback(async (
+    pending: PendingWrite,
+    write: (remote: ChatGptRemote) => Promise<RemoteResult<ModelSwitchView[]>>,
+    onSuccess?: (rows: ModelSwitchView[]) => void,
+  ) => {
+    const run = writeQueue.current.then(async () => {
+      setPendingWrite(pending)
+      try {
+        const remote = await waitForRemote(ctx)
+        const rows = unwrap(await write(remote))
+        setSwitches(rows)
+        onSuccess?.(rows)
+        setSwitchesError(undefined)
+      } catch (error) {
+        setSwitchesError(error instanceof Error ? error.message : String(error))
+      } finally {
+        setPendingWrite(undefined)
+      }
+    })
+    // A failed write must not poison the queue: the tail swallows so the next
+    // gesture still runs, while `run` itself keeps the failure for its caller.
+    writeQueue.current = run.then(() => undefined, () => undefined)
+    return await run
+  }, [ctx])
+
+  /** Write one toggle; the selector rebuilds its offering on the Host's announcement. */
+  const toggle = useCallback((model: string, offered: boolean) => {
+    void writeSwitches({ kind: 'model', id: model }, remote => remote.setModelDisabled(model, !offered))
+  }, [writeSwitches])
+
+  /**
+   * Commit one display name; blank restores the roster's own.
+   *
+   * The draft stays until the write lands, so the field never flashes empty
+   * mid-round-trip, and it survives a failure for the user to retry.
+   */
+  const renameModel = useCallback((model: string, name: string | undefined) => {
+    void writeSwitches({ kind: 'model', id: model }, remote => remote.setModelName(model, name), (rows) => {
+      setNameDrafts((previous) => {
+        const next: Record<string, string> = {}
+        for (const [id, draft] of Object.entries(previous)) {
+          const row = rows.find(entry => entry.id === id)
+          if (row === undefined) continue
+          const trimmed = draft.trim()
+          if (trimmed === row.name) continue
+          if (trimmed.length === 0 && row.name === row.defaultName) continue
+          next[id] = draft
+        }
+        return next
+      })
+    })
+  }, [writeSwitches])
+
+  /** Clear every switch and name override; drafts drop when the reset lands. */
+  const resetAll = useCallback(() => {
+    void writeSwitches({ kind: 'reset' }, remote => remote.resetModels(), () => { setNameDrafts({}) })
+  }, [writeSwitches])
+
   const act = useCallback(async (operation: (remote: ChatGptRemote) => Promise<RemoteResult<StatusView>>) => {
     setBusy(true)
     try {
@@ -240,8 +360,8 @@ export function ChatGptCard({ ctx, mounting }: { ctx: ClientContext, mounting: P
 
   if (status === undefined) {
     return (
-      <div style={{ fontSize: '0.8125rem', color: 'var(--dsw-alias-text-secondary, #888)' }}>
-        Contacting the ChatGPT service…
+      <div className="dsh-chatgpt-card">
+        <p className="dsh-chatgpt-note">Contacting the ChatGPT service…</p>
       </div>
     )
   }
@@ -254,44 +374,88 @@ export function ChatGptCard({ ctx, mounting }: { ctx: ClientContext, mounting: P
   const needsSignIn = status.needsSignIn === true
   // A dead grant is not usable plan access even though a credential is stored:
   // show the sign-in action rather than account facts over an unusable token.
-  const showsAccount = !needsSignIn && (status.signedIn || status.planUsageDenied)
-  const state = needsSignIn
-    ? { tone: 'warning' as const, text: 'Sign-in required' }
+  const showsAccount = accountShown
+  // The row-head dot: green for a usable account, amber for plan usage that is
+  // stored but not authorized, red for everything a new sign-in must fix.
+  const signInState = needsSignIn
+    ? 'out'
     : status.signedIn
-      ? { tone: 'success' as const, text: 'Signed in' }
-      : status.planUsageDenied
-        ? { tone: 'warning' as const, text: 'Plan usage not authorized' }
-        : { tone: 'neutral' as const, text: 'Signed out' }
+      ? status.planUsageDenied ? 'warn' : 'in'
+      : 'out'
+  const accountLabel = [status.email ?? activeSubject ?? 'unknown', status.plan]
+    .filter(part => part !== undefined && part.length > 0)
+    .join(' · ')
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem', padding: '0.75rem 0' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <Tag tone={state.tone}>{state.text}</Tag>
-        {status.plan === undefined ? null : <Pill>{status.plan}</Pill>}
-      </div>
+    <div className="dsh-chatgpt-card" data-chatgpt-signin={signInState}>
+      {status.error === undefined ? null : <p className="dsh-chatgpt-error">{status.error}</p>}
 
-      {status.error === undefined ? null : (
-        <div style={{ fontSize: '0.8125rem', color: 'var(--dsw-alias-text-danger, #c33)' }}>{status.error}</div>
-      )}
-
-      {revocationNote === undefined ? null : (
-        <div style={{ fontSize: '0.8125rem', color: 'var(--dsw-alias-text-secondary, #888)' }}>{revocationNote}</div>
-      )}
+      {revocationNote === undefined ? null : <p className="dsh-chatgpt-note">{revocationNote}</p>}
 
       {showsAccount ? (
         <>
-          <Fact label="Account">{status.email ?? activeSubject ?? 'unknown'}</Fact>
-          <Fact label="Models">
-            {status.planUsageDenied
-              ? 'Authorize plan usage to use this account'
-              : rosterLine(status.roster)}
-          </Fact>
-          {status.expiresAt === undefined ? null : (
-            <Fact label="Token">
-              {`refreshes automatically (valid to ${new Date(status.expiresAt).toLocaleTimeString()})`}
-            </Fact>
+          <div className="dsh-chatgpt-facts">
+            <div className="dsh-chatgpt-fact">
+              <span className="dsh-chatgpt-factlabel">Account</span>
+              <span>{accountLabel}</span>
+            </div>
+            {status.expiresAt === undefined ? null : (
+              <div className="dsh-chatgpt-fact">
+                <span className="dsh-chatgpt-factlabel">Token</span>
+                <span>{`refreshes automatically (valid to ${new Date(status.expiresAt).toLocaleTimeString()})`}</span>
+              </div>
+            )}
+          </div>
+
+          {status.planUsageDenied ? (
+            <p className="dsh-chatgpt-note">Authorize plan usage to use this account.</p>
+          ) : null}
+
+          {switchesError === undefined ? null : <p className="dsh-chatgpt-error">{switchesError}</p>}
+
+          {switches === undefined ? null : (
+            <details className="dsh-chatgpt-models">
+              <summary className="dsh-chatgpt-summary">Models</summary>
+              <div className="dsh-chatgpt-models-body">
+                <div className="dsh-chatgpt-models-head">
+                  <p className="dsh-chatgpt-meta">
+                    {`${String(switches.length)} models · a switch only changes what the selector offers; a name is display-only`}
+                  </p>
+                  <button
+                    type="button"
+                    className="dsh-chatgpt-restore"
+                    // Everything already reads as the roster produced it: there is
+                    // nothing to restore, so the button stands but does nothing.
+                    // A click while another write is queued just lines up behind it.
+                    disabled={switches.every(row => !row.disabled && row.name === row.defaultName)}
+                    onClick={resetAll}
+                  >
+                    Restore defaults
+                  </button>
+                </div>
+                {switches.map(model => (
+                  <NameRow
+                    key={model.id}
+                    model={model}
+                    saving={pendingWrite?.kind === 'model' && pendingWrite.id === model.id}
+                    draft={nameDrafts[model.id]}
+                    onDraft={value => { setNameDrafts(previous => ({ ...previous, [model.id]: value })) }}
+                    onDropDraft={() => {
+                      setNameDrafts(previous => {
+                        const next = { ...previous }
+                        delete next[model.id]
+                        return next
+                      })
+                    }}
+                    onToggle={offered => { toggle(model.id, offered) }}
+                    onRename={name => { renameModel(model.id, name) }}
+                  />
+                ))}
+              </div>
+            </details>
           )}
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+
+          <div className="dsh-chatgpt-actions">
             <Button
               variant="outline"
               size="sm"
@@ -319,16 +483,16 @@ export function ChatGptCard({ ctx, mounting }: { ctx: ClientContext, mounting: P
       ) : pending === undefined ? (
         <>
           {needsSignIn ? (
-            <div style={{ fontSize: '0.8125rem', color: 'var(--dsw-alias-text-danger, #c33)' }}>
+            <p className="dsh-chatgpt-error">
               The stored ChatGPT grant was refused and cannot be refreshed. Sign in again to
               restore plan usage; the model selector will reload the account's models.
-            </div>
+            </p>
           ) : null}
-          <div style={{ fontSize: '0.8125rem' }}>
+          <p className="dsh-chatgpt-note">
             Use your ChatGPT subscription instead of an API key. Signing in authorizes this
             installation to spend your plan on model calls; the token stays on this machine.
-          </div>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          </p>
+          <div className="dsh-chatgpt-actions">
             <Button variant="primary" disabled={busy} onClick={() => { void act(remote => remote.begin()) }}>
               Sign in with ChatGPT
             </Button>
@@ -336,25 +500,18 @@ export function ChatGptCard({ ctx, mounting }: { ctx: ClientContext, mounting: P
         </>
       ) : (
         <>
-          <div style={{ fontSize: '0.8125rem' }}>
+          <p className="dsh-chatgpt-note">
             Open the authorization page. When the browser returns to{' '}
             <code>{pending.redirectUri}</code>, this card finishes on its own.
-          </div>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          </p>
+          <div className="dsh-chatgpt-urlrow">
             <input
               ref={urlRef}
               readOnly
               value={pending.url}
+              aria-label="Authorization URL"
               onFocus={event => { event.currentTarget.select() }}
-              style={{
-                flex: 1,
-                fontFamily: 'var(--dsw-font-mono, monospace)',
-                fontSize: '0.75rem',
-                padding: '0.375rem 0.5rem',
-                border: '1px solid var(--dsw-alias-border, #ddd)',
-                borderRadius: '6px',
-                background: 'var(--dsw-alias-bg-secondary, transparent)',
-              }}
+              className="dsh-chatgpt-urlinput"
             />
             <Button
               variant="primary"
@@ -367,15 +524,15 @@ export function ChatGptCard({ ctx, mounting }: { ctx: ClientContext, mounting: P
               Open
             </Button>
           </div>
-          <div style={{ fontSize: '0.8125rem', color: 'var(--dsw-alias-text-secondary, #888)' }}>
+          <p className="dsh-chatgpt-note">
             If the browser cannot reach that address, paste the final URL it landed on instead.
-          </div>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          </p>
+          <div className="dsh-chatgpt-urlrow">
             <Input
               value={pasted}
               placeholder={pending.redirectUri}
               onChange={event => { setPasted(event.target.value) }}
-              style={{ flex: 1 }}
+              style={{ flex: 1, minWidth: 0 }}
             />
             <Button
               variant="outline"
@@ -396,6 +553,72 @@ export function ChatGptCard({ ctx, mounting }: { ctx: ClientContext, mounting: P
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+/**
+ * One model row: the display name under edit, the slug it names, and the switch.
+ *
+ * The name commits on blur or Enter; Escape drops the draft. An empty commit
+ * restores the roster's own name, which is what the placeholder shows while no
+ * override is set. Nothing here is disabled by a write elsewhere on the card:
+ * writes are serialized by the card's queue, and a disabled control is what
+ * ate the next focus and dimmed the list mid-save. Only this row's own switch
+ * waits for its own write, so a double-click cannot queue two toggles.
+ */
+function NameRow(props: {
+  model: ModelSwitchView
+  saving: boolean
+  draft: string | undefined
+  onDraft: (value: string) => void
+  onDropDraft: () => void
+  onToggle: (offered: boolean) => void
+  onRename: (name: string | undefined) => void
+}): React.ReactNode {
+  const { model } = props
+  const commit = (): void => {
+    const draft = props.draft
+    if (draft === undefined) return
+    const trimmed = draft.trim()
+    if (trimmed === model.name) {
+      props.onDropDraft()
+      return
+    }
+    if (trimmed.length === 0 && model.name === model.defaultName) {
+      props.onDropDraft()
+      return
+    }
+    // The draft stays until the write lands and the fresh list reconciles it:
+    // dropping it now would blank the field for the round-trip, and dropping
+    // it never (failure) leaves the user's text editable for a retry.
+    props.onRename(trimmed.length === 0 ? undefined : trimmed)
+  }
+  return (
+    <div className="dsh-chatgpt-model">
+      <input
+        type="text"
+        className="dsh-chatgpt-nameinput"
+        // Empty means "no override": the placeholder carries the name the
+        // selector would show, so clearing the field reads as restoring it.
+        value={props.draft ?? (model.name === model.defaultName ? '' : model.name)}
+        placeholder={model.defaultName}
+        aria-label={`Display name for ${model.id}`}
+        onChange={event => { props.onDraft(event.target.value) }}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') commit()
+          if (event.key === 'Escape') props.onDropDraft()
+        }}
+      />
+      <span className="dsh-chatgpt-slug" title={model.id}>{model.id}</span>
+      <Switch
+        checked={!model.disabled}
+        onChange={offered => { props.onToggle(offered) }}
+        label={`Offer ${model.id} in the model selector`}
+        disabled={props.saving}
+        title={props.saving ? 'Saving…' : undefined}
+      />
     </div>
   )
 }

@@ -14,6 +14,7 @@
  * @module dsh-plugin-chatgpt-subscription/auth/manager
  */
 
+import { openSync, closeSync, unlinkSync, mkdirSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { ensureHostId } from './host-id.ts'
@@ -71,7 +72,6 @@ export class ChatGptAuth {
   private readonly file: string
   private readonly options: ChatGptAuthOptions
   private document: ChatGptStoreDocument | undefined
-  private loaded = false
   private readonly refreshing = new Map<string, Promise<ChatGptCredential>>()
 
   /**
@@ -87,11 +87,39 @@ export class ChatGptAuth {
     return this.file
   }
 
+  private mutationLocked = false
+
+  /** Serialize short storage transactions separately from the network refresh lock.
+   * Synchronous callers fail promptly on contention instead of blocking the event loop. */
+  private mutate<T>(task: () => T): T {
+    if (this.mutationLocked) return task()
+    mkdirSync(dirname(this.file), { recursive: true, mode: 0o700 })
+    const lock = `${this.file}.lock`
+    let handle: number
+    try { handle = openSync(lock, 'wx', 0o600) } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      // Storage transactions contain no awaits; a two-minute lock is abandoned.
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > 120_000) unlinkSync(lock)
+      } catch (staleError) {
+        if ((staleError as NodeJS.ErrnoException).code !== 'ENOENT') throw staleError
+      }
+      try { handle = openSync(lock, 'wx', 0o600) } catch {
+        throw new Error('ChatGPT credentials are being updated; retry the account operation shortly')
+      }
+    }
+    this.mutationLocked = true
+    try { return task() } finally {
+      this.mutationLocked = false
+      closeSync(handle)
+      unlinkSync(lock)
+    }
+  }
+
   /** Load lazily so a plugin that is never used never touches the disk. */
   private load(): ChatGptStoreDocument {
-    if (!this.loaded) {
+    {
       this.document = readDocument(this.file)
-      this.loaded = true
       if (this.document !== undefined) {
         const accounts = { ...this.document.accounts }
         let changed = false
@@ -103,7 +131,13 @@ export class ChatGptAuth {
         }
         // Old subject values may have been fabricated by adopt(). Do not use
         // them to recover an identity: assign a fresh local authorization scope.
-        if (changed) this.save({ ...this.document, accounts })
+        if (changed) return this.mutate(() => {
+          const latest = readDocument(this.file) ?? emptyDocument(this.hostId())
+          const upgraded = Object.fromEntries(Object.entries(latest.accounts).map(([key, value]) =>
+            [key, isReplayNamespace(value.replayNamespace) ? value : { ...value, replayNamespace: randomUUID() }]))
+          this.save({ ...latest, accounts: upgraded })
+          return this.document!
+        })
       }
     }
     return this.document ?? emptyDocument(this.hostId())
@@ -118,7 +152,6 @@ export class ChatGptAuth {
   private save(document: ChatGptStoreDocument): void {
     writeDocument(this.file, document)
     this.document = document
-    this.loaded = true
   }
 
   /** The active grant, or `undefined` when nothing usable is stored. */
@@ -141,6 +174,7 @@ export class ChatGptAuth {
     if (current === undefined) {
       throw new Error('no ChatGPT account is signed in; run a sign-in first')
     }
+    if (!canSpendPlan(current)) throw new Error('ChatGPT plan usage is disabled; authorize plan usage before inference')
     if (isFresh(current)) return current
     return this.rotate(current, signal)
   }
@@ -188,8 +222,8 @@ export class ChatGptAuth {
 
   /** Refresh under a cross-process file lock; another process may have rotated this grant first. */
   private async runRefresh(current: ChatGptCredential, signal?: AbortSignal): Promise<ChatGptCredential> {
-    return withCredentialFileLock(this.file, async () => {
-      const document = readDocument(this.file)
+    return withCredentialFileLock(`${this.file}.refresh`, async () => {
+      const document = this.mutate(() => readDocument(this.file))
       const key = Object.entries(document?.accounts ?? {})
         .find(([, stored]) => stored.replayNamespace === current.replayNamespace)?.[0]
       if (document === undefined || key === undefined) {
@@ -199,8 +233,7 @@ export class ChatGptAuth {
       if (latest.refreshToken !== current.refreshToken) {
         // A concurrent DSH process already rotated the single-use refresh token.
         this.document = document
-        this.loaded = true
-        return latest
+          return latest
       }
       const timeout = AbortSignal.timeout(30_000)
       const refreshSignal = signal === undefined ? timeout : AbortSignal.any([signal, timeout])
@@ -208,12 +241,13 @@ export class ChatGptAuth {
         ...this.options.endpoints?.tokenUrl === undefined ? {} : { tokenUrl: this.options.endpoints.tokenUrl },
         signal: refreshSignal,
       })
-      const reloaded = readDocument(this.file)
-      if (reloaded === undefined || reloaded.accounts[key]?.refreshToken !== latest.refreshToken) {
-        throw new Error('the authorization changed or was removed during refresh')
-      }
-      // Preserve activity switches and other account changes made during the HTTP call.
-      this.save({ ...reloaded, accounts: { ...reloaded.accounts, [key]: rotated } })
+      this.mutate(() => {
+        const reloaded = readDocument(this.file)
+        if (reloaded === undefined || reloaded.accounts[key]?.refreshToken !== latest.refreshToken) {
+          throw new Error('the authorization changed or was removed during refresh')
+        }
+        this.save({ ...reloaded, accounts: { ...reloaded.accounts, [key]: rotated } })
+      })
       return rotated
     }, signal)
   }
@@ -281,6 +315,10 @@ export class ChatGptAuth {
    * @returns the local account key the grant was filed under.
    */
   adopt(credential: ChatGptCredential): string {
+    return this.mutate(() => this.adoptUnlocked(credential))
+  }
+
+  private adoptUnlocked(credential: ChatGptCredential): string {
     const document = this.load()
     const { subject, replayNamespace: _suppliedNamespace, ...rest } = credential
     const identity = typeof subject === 'string' && subject.trim().length > 0 ? subject : undefined
@@ -309,6 +347,10 @@ export class ChatGptAuth {
 
   /** Make an already-authorized account active. */
   activate(subject: string): void {
+    return this.mutate(() => this.activateUnlocked(subject))
+  }
+
+  private activateUnlocked(subject: string): void {
     const document = this.load()
     if (document.accounts[subject] === undefined) {
       throw new Error(`no stored ChatGPT account is filed under ${subject}`)
@@ -353,6 +395,10 @@ export class ChatGptAuth {
 
   /** Forget one account, or every account when no subject is named. */
   signOut(subject?: string): void {
+    return this.mutate(() => this.signOutUnlocked(subject))
+  }
+
+  private signOutUnlocked(subject?: string): void {
     const document = this.load()
     if (subject === undefined) {
       // Every credential goes; the registrations stay, because they describe the

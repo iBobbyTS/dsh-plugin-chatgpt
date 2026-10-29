@@ -18,8 +18,10 @@
 
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { ChatGptSession, ChatGptSignOutOutcome, ChatGptStatusView } from './session.ts'
+import type { ModelSwitchView } from './models/switches.ts'
 
 export type { ChatGptPendingView, ChatGptSignOutOutcome, ChatGptStatusView } from './session.ts'
+export type { ModelSwitchView } from './models/switches.ts'
 
 /** Remote owner of the ChatGPT sign-in and account surface. */
 export class ChatGptController extends TypertRemoteService {
@@ -79,5 +81,48 @@ export class ChatGptController extends TypertRemoteService {
   @Remote
   async signOut(subject?: string): Promise<ChatGptSignOutOutcome> {
     return await this.session.signOut(subject)
+  }
+
+  /**
+   * Every roster model and whether the human switched it off.
+   * @returns one row per roster model, roster order.
+   */
+  @Remote
+  async modelSwitches(): Promise<readonly ModelSwitchView[]> {
+    return await this.session.modelSwitches()
+  }
+
+  /**
+   * Switch one roster model on or off; the selector reloads what it offers.
+   * @param model - the exact model id on the current roster.
+   * @param disabled - whether the selector should stop offering the model.
+   * @returns the switch list after the change is persisted.
+   */
+  @Remote
+  async setModelDisabled(model: string, disabled: boolean): Promise<readonly ModelSwitchView[]> {
+    return await this.session.setModelDisabled(model, disabled)
+  }
+
+  /**
+   * Set one roster model's display name, or restore the roster's own; the
+   * selector reloads what it shows.
+   * @param model - the exact model id on the current roster.
+   * @param name - the display name to store; `undefined` or blank removes the
+   * override.
+   * @returns the switch list after the change is persisted.
+   */
+  @Remote
+  async setModelName(model: string, name?: string): Promise<readonly ModelSwitchView[]> {
+    return await this.session.setModelName(model, name)
+  }
+
+  /**
+   * Clear every switch and display-name override, restoring the roster as the
+   * account produces it.
+   * @returns the switch list after the reset is persisted.
+   */
+  @Remote
+  async resetModels(): Promise<readonly ModelSwitchView[]> {
+    return await this.session.resetModels()
   }
 }

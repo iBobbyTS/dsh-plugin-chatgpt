@@ -529,7 +529,7 @@ describe('ChatGptAdapter', () => {
           refreshToken: 'refresh',
           expiresAt: Date.now() + 3600_000,
           clientId: 'oaiapp_issued',
-          scopes: ['chatgpt.tokens.use.openai'],
+          scopes: ['chatgpt.tokens.use.direct'],
           subject: 'subject-1',
           savedAt: Date.now(),
         },
@@ -627,7 +627,7 @@ describe('ChatGptAdapter', () => {
               + ' Review usage at https://chatgpt.com/settings/usage to see both the plan and this app\'s limit.'
               + ' No reset time can be read from the code itself, so waiting is the only option'
               + ' unless an API key or another provider is available in the meantime.',
-            code: 'subscription_sharing_usage_limit_exceeded',
+            code: 'QUOTA',
           },
         },
       },

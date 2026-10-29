@@ -52,7 +52,7 @@ export async function verifyOpenAiIdTokenSignature(
   if (matching.length !== 1) throw new Error('the ID token signing key was not uniquely found in OpenAI JWKS')
   let valid = false
   try {
-    const key = createPublicKey({ key: matching[0] as JsonWebKey, format: 'jwk' })
+    const key = createPublicKey({ key: matching[0] as import('node:crypto').JsonWebKey, format: 'jwk' })
     const signed = Buffer.from(`${parts[0]}.${parts[1]}`)
     const signature = Buffer.from(parts[2]!, 'base64url')
     valid = header.alg === 'RS256'

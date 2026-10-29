@@ -171,7 +171,7 @@ describe('BlockTranslator', () => {
         type: 'finish',
         reason: {
           kind: 'error',
-          failure: { message: 'out of allowance', code: 'subscription_sharing_usage_limit_exceeded' },
+          failure: { message: 'out of allowance', code: 'QUOTA' },
         },
       },
     ])

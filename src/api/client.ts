@@ -220,7 +220,14 @@ export async function* streamTurn(options: StreamTurnOptions): AsyncGenerator<Re
     clearTimeout(deadline)
   }
   if (!response.ok) {
-    throw errorOf(await response.text().catch(() => ''), response.status)
+    const errorDeadline = setTimeout(() => connectTimeout.abort(new ApiError('ChatGPT error response body timed out', 'TIMEOUT')), idleTimeoutMs)
+    try {
+      const body = await response.text()
+      throw errorOf(body, response.status)
+    } catch (error) {
+      if (connectTimeout.signal.aborted) throw connectTimeout.signal.reason
+      throw error
+    } finally { clearTimeout(errorDeadline) }
   }
   if (response.body === null) {
     throw new ApiError('the endpoint returned no response body', 'empty_stream', response.status)

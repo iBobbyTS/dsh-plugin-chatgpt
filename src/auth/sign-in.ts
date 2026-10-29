@@ -260,6 +260,8 @@ export async function beginSignIn(options: SignInOptions): Promise<SignInAttempt
   }).toString()
 
   let settled = false
+  let cancelled = false
+  const exchange = new AbortController()
   let timer: NodeJS.Timeout | undefined
   let resolveResult: (credential: ChatGptCredential) => void
   let rejectResult: (error: Error) => void
@@ -285,6 +287,7 @@ export async function beginSignIn(options: SignInOptions): Promise<SignInAttempt
     }
     const response = await fetch(options.tokenUrl ?? TOKEN_URL, {
       method: 'POST',
+      signal: AbortSignal.any([exchange.signal, AbortSignal.timeout(30_000)]),
       headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         grant_type: 'authorization_code',
@@ -304,12 +307,6 @@ export async function beginSignIn(options: SignInOptions): Promise<SignInAttempt
     const refresh = requireString(token.refresh_token, 'refresh_token')
     const idToken = requireString(token.id_token, 'id_token')
     const granted = requireString(token.scope, 'scope').split(/\s+/).filter(Boolean)
-    if (!granted.includes(DIRECT_TOKEN_SCOPE)) {
-      throw new Error(
-        `the ChatGPT account granted ${granted.join(' ') || 'no scopes'}, which does not include`
-        + ` ${DIRECT_TOKEN_SCOPE}; this account cannot spend its ChatGPT plan on inference`,
-      )
-    }
     const expiresIn = token.expires_in
     if (typeof expiresIn !== 'number' || !Number.isFinite(expiresIn) || expiresIn <= 0) {
       throw new Error('the token response carries no usable expires_in')
@@ -320,6 +317,7 @@ export async function beginSignIn(options: SignInOptions): Promise<SignInAttempt
       && identity.subject !== options.registration.expectedSubject) {
       throw new Error('the returning ChatGPT authorization has a different account identity')
     }
+    if (cancelled) return
     resolveResult({
       accessToken: access,
       refreshToken: refresh,
@@ -385,7 +383,8 @@ export async function beginSignIn(options: SignInOptions): Promise<SignInAttempt
       }
     },
     cancel(reason = 'the sign-in attempt was cancelled'): void {
-      if (settled) return
+      cancelled = true
+      exchange.abort(new Error(reason))
       finish()
       rejectResult(new Error(reason))
     },

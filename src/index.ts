@@ -199,12 +199,16 @@ export function apply(ctx: Context, config: Config): void {
   const inner = new ChatGptAdapter({
     auth,
     displayName,
+    stateDir,
     contextWindowLimit: () => config.contextWindowLimit.get(),
     modelContextWindowLimits: () => config.modelContextWindowLimits.get(),
     streamIdleTimeoutMs: () => config.streamIdleTimeoutMs.get(),
     // A listing that recovers must clear a cached provider failure in the
     // browser's model selector; see the callback's documentation.
     onListingRecovered: () => { ctx.emit('llm/adapters-updated') },
+    // A switch hides or restores a model in the same selector, so it needs the
+    // same announcement a roster change gets.
+    onModelSwitchesChanged: () => { ctx.emit('llm/adapters-updated') },
     ...baseUrl.length === 0 ? {} : { baseUrl },
   })
 

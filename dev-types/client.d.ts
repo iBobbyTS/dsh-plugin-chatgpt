@@ -81,4 +81,20 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
   export function Input(props: {
     className?: string
   } & InputHTMLAttributes<HTMLInputElement>): ReactNode
+
+  /** A two-state toggle switch; `label` is the accessible name it requires. */
+  export function Switch(props: {
+    /** Current state; the control is fully controlled. */
+    checked: boolean
+    /** Called with the state the click asks for. */
+    onChange: (next: boolean) => void
+    /** Accessible name, owned by the render site. */
+    label: string
+    /** Whether the control refuses input, including while a write is in flight. */
+    disabled?: boolean
+    /** Hover text, typically why the toggle is locked. */
+    title?: string | undefined
+    /** Extra class for layout placement. */
+    className?: string | undefined
+  }): ReactNode
 }

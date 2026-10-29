@@ -280,7 +280,7 @@ export function decodeEvent(payload: string): ResponsesEvent | undefined {
     case 'response.failed':
     case 'error': {
       const source = type === 'error' ? event : record(event['response'])
-      const error = record(source?.['error']) ?? record(event['error']) ?? {}
+      const error = type === 'error' ? record(event['error']) ?? event : record(source?.['error']) ?? {}
       const code = str(error['code']) ?? str(error['type']) ?? 'unknown_error'
       const reported = str(error['message']) ?? 'the response failed without a message'
       const hint = recoveryHint(code)

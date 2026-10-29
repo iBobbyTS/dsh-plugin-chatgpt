@@ -13,6 +13,7 @@
 import { isCodedError, type ChatGptAdapter } from './adapter.ts'
 import type { ChatGptAuth } from './auth/manager.ts'
 import type { SignInAttempt } from './auth/sign-in.ts'
+import type { ModelSwitchView } from './models/switches.ts'
 
 /** An attempt the page can finish. */
 export interface ChatGptPendingView {
@@ -171,6 +172,7 @@ export class ChatGptSession {
       this.pending = attempt
       this.completing = attempt.result.then(
         (credential) => {
+          if (this.pending !== attempt) return
           this.auth.adopt(credential)
           // The roster is per account, so a listing produced by the previous
           // account must not outlive the sign-in that replaces it.
@@ -181,6 +183,7 @@ export class ChatGptSession {
           this.onRosterChanged()
         },
         (error: unknown) => {
+          if (this.pending !== attempt) return
           this.lastError = error instanceof Error ? error.message : String(error)
           this.pending = undefined
         },
@@ -242,14 +245,61 @@ export class ChatGptSession {
     }
   }
 
+  /**
+   * Every roster model with its switch state, for the card's model list.
+   *
+   * Delegated rather than duplicated: the roster and its switches have one
+   * owner, and the card must not be able to see a list the selector was not
+   * built from.
+   *
+   * @returns one row per roster model, roster order.
+   */
+  async modelSwitches(): Promise<readonly ModelSwitchView[]> {
+    return await this.adapter.modelSwitches()
+  }
+
+  /**
+   * Switch one roster model on or off.
+   *
+   * @param model - the exact model id on the current roster.
+   * @param disabled - whether the selector should stop offering the model.
+   * @returns the switch list after the change is persisted.
+   */
+  async setModelDisabled(model: string, disabled: boolean): Promise<readonly ModelSwitchView[]> {
+    return await this.adapter.setModelDisabled(model, disabled)
+  }
+
+  /**
+   * Set one roster model's display name, or restore the roster's own.
+   *
+   * @param model - the exact model id on the current roster.
+   * @param name - the display name the selector should show; `undefined` or
+   * blank removes the override.
+   * @returns the switch list after the change is persisted.
+   */
+  async setModelName(model: string, name?: string): Promise<readonly ModelSwitchView[]> {
+    return await this.adapter.setModelName(model, name)
+  }
+
+  /**
+   * Clear every switch and display-name override.
+   * @returns the switch list after the reset is persisted.
+   */
+  async resetModels(): Promise<readonly ModelSwitchView[]> {
+    return await this.adapter.resetModels()
+  }
+
   /** Wait for an in-flight exchange to settle, within one answer's patience. */
   private async settle(): Promise<void> {
     const completing = this.completing
     if (completing === undefined) return
-    await Promise.race([
-      completing,
-      new Promise<void>(resolve => { setTimeout(resolve, SUBMIT_TIMEOUT_MS) }),
-    ])
+    let timer: NodeJS.Timeout | undefined
+    try {
+      await Promise.race([
+        completing,
+        new Promise<void>(resolve => { timer = setTimeout(resolve, SUBMIT_TIMEOUT_MS) }),
+      ])
+    } finally { if (timer !== undefined) clearTimeout(timer) }
   }
 
   /** Abandon the open attempt, if any. */

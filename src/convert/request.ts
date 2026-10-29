@@ -80,8 +80,12 @@ export function toResponsesBody(request: NeutralRequest): ResponsesBody {
     }
     if (message.role === 'tool') {
       if (message.toolCallId === undefined) continue
-      const output = textOf(message.content)
-      input.push({ type: 'function_call_output', call_id: message.toolCallId, output: message.isError ? `Error: ${output}` : output })
+      const output = typeof message.content !== 'string' && message.content.some(part => part.type === 'image')
+        ? message.content.flatMap(part => part.type === 'text'
+          ? [{ type: 'input_text', text: message.isError ? `Error: ${part.text}` : part.text }] as Record<string, unknown>[]
+          : part.type === 'image' ? [{ type: 'input_image', image_url: part.url }] : [])
+        : textOf(message.content)
+      input.push({ type: 'function_call_output', call_id: message.toolCallId, output: message.isError && typeof output === 'string' ? `Error: ${output}` : output })
       continue
     }
     const role = message.role === 'system' ? 'developer' : message.role
