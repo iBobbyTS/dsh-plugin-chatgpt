@@ -17,6 +17,7 @@
 import { RESOURCE } from '../auth/protocol.ts'
 import { createSseDecoder, decodeEvent, isPlanUsageCode, type ResponsesEvent } from './events.ts'
 import { toResponsesBody, type NeutralRequest, type ResponsesBody } from '../convert/request.ts'
+import { normalizeFailureCode } from './failure.ts'
 import type { ListedModel } from '../models/describe.ts'
 
 /** Endpoints this client talks to. */
@@ -44,7 +45,7 @@ export class ApiError extends Error {
   constructor(message: string, code: string, status?: number) {
     super(message)
     this.name = 'ApiError'
-    this.code = code
+    this.code = normalizeFailureCode(code, message, status)
     this.planUsage = isPlanUsageCode(code)
     if (status !== undefined) this.status = status
   }
