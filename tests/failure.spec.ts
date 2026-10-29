@@ -13,6 +13,8 @@ describe('DSH recovery classification', () => {
   it('distinguishes quota exhaustion from transient failures', () => {
     assert.equal(normalizeFailureCode('subscription_sharing_usage_limit_exceeded', 'plan exhausted', 429), 'QUOTA')
     assert.equal(normalizeFailureCode('subscription_sharing_usage_unavailable', 'try later', 503), 'SERVER')
+    assert.equal(normalizeFailureCode('subscription_sharing_user_unavailable', 'try later'), 'SERVER')
+    assert.equal(normalizeFailureCode('server_is_overloaded', 'overloaded'), 'SERVER')
     assert.equal(normalizeFailureCode('rate_limit_exceeded', 'retry', 429), 'RATE_LIMIT')
     assert.equal(normalizeFailureCode('http_503', 'gateway error', 503), 'SERVER')
     assert.equal(normalizeFailureCode('http_504', 'gateway timeout', 504), 'TIMEOUT')

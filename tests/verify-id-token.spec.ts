@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { createPublicKey, generateKeyPairSync, sign } from 'node:crypto'
+import { generateKeyPairSync, sign } from 'node:crypto'
 import { verifyOpenAiIdTokenSignature } from '../src/auth/verify-id-token.ts'
 
 describe('OpenAI ID-token signature verification', () => {

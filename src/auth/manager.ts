@@ -54,6 +54,8 @@ export interface ChatGptAuthOptions {
     authorizeUrl?: string
     tokenUrl?: string
     preferredPort?: number
+    /** Test-only signature verifier for synthetic issuer fixtures. */
+    verifyIdTokenSignature?: SignInOptions['verifyIdTokenSignature']
     /** Override the revocation endpoint. */
     revocationEndpoint?: string
     /** Override the discovery document that names the revocation endpoint. */
@@ -207,7 +209,7 @@ export class ChatGptAuth {
         signal: refreshSignal,
       })
       const reloaded = readDocument(this.file)
-      if (reloaded?.accounts[key]?.refreshToken !== latest.refreshToken) {
+      if (reloaded === undefined || reloaded.accounts[key]?.refreshToken !== latest.refreshToken) {
         throw new Error('the authorization changed or was removed during refresh')
       }
       // Preserve activity switches and other account changes made during the HTTP call.
@@ -258,11 +260,13 @@ export class ChatGptAuth {
       ...this.options.endpoints?.authorizeUrl === undefined ? {} : { authorizeUrl: this.options.endpoints.authorizeUrl },
       ...this.options.endpoints?.tokenUrl === undefined ? {} : { tokenUrl: this.options.endpoints.tokenUrl },
       ...this.options.endpoints?.preferredPort === undefined ? {} : { preferredPort: this.options.endpoints.preferredPort },
+      ...this.options.endpoints?.verifyIdTokenSignature === undefined ? {} : { verifyIdTokenSignature: this.options.endpoints.verifyIdTokenSignature },
       // A previously issued client id skips registration entirely, which is the
       // documented path for a returning account on the same installation.
       ...existing === undefined ? {} : {
         registration: {
           clientId: existing.clientId,
+          ...stored?.subject === undefined ? {} : { expectedSubject: stored.subject },
           ...existing.email === undefined ? {} : { loginHint: existing.email },
         },
       },

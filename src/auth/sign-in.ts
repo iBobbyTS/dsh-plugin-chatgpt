@@ -62,6 +62,8 @@ export interface SignInOptions {
    */
   registration?: {
     clientId: string
+    /** A returning live credential must retain its verified account identity. */
+    expectedSubject?: string
     idTokenHint?: string
     loginHint?: string
   }
@@ -129,6 +131,7 @@ interface IdTokenClaims {
   aud?: unknown
   sub?: unknown
   exp?: unknown
+  iat?: unknown
   nonce?: unknown
   email?: unknown
   [claim: string]: unknown
@@ -183,6 +186,11 @@ export function validateIdToken(
   }
   if (claims.nonce !== expectedNonce) {
     throw new Error('the ID token carries a different nonce than this sign-in attempt')
+  }
+  const issuedAt = claims.iat
+  if (typeof issuedAt !== 'number' || !Number.isFinite(issuedAt)
+    || issuedAt * 1000 > Date.now() + 5_000) {
+    throw new Error('the ID token has a missing or invalid issued-at time')
   }
   const expiry = claims.exp
   if (typeof expiry !== 'number' || !Number.isFinite(expiry) || expiry * 1000 <= Date.now()) {
@@ -308,6 +316,10 @@ export async function beginSignIn(options: SignInOptions): Promise<SignInAttempt
     }
     await (options.verifyIdTokenSignature ?? verifyOpenAiIdTokenSignature)(idToken)
     const identity = validateIdToken(idToken, clientId, nonce)
+    if (options.registration?.expectedSubject !== undefined
+      && identity.subject !== options.registration.expectedSubject) {
+      throw new Error('the returning ChatGPT authorization has a different account identity')
+    }
     resolveResult({
       accessToken: access,
       refreshToken: refresh,

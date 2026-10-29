@@ -292,3 +292,22 @@ describe('beginSignIn', () => {
     await assert.rejects(attempt.result)
   })
 })
+
+it('rejects reauthorizing an existing client as a different account', async () => {
+  const token = await startTokenServer({ reply: () => ({ body: {
+    access_token: 'access', refresh_token: 'refresh',
+    id_token: jwt(idTokenClaims({ clientId: 'oaiapp_returning', nonce: nonce.value })),
+    expires_in: 3600, scope: 'chatgpt.tokens.use.direct',
+  } }) })
+  closers.push(token.close)
+  const attempt = await beginSignIn({
+    verifyIdTokenSignature: async () => {},
+    agentHostId: AGENT_HOST_ID, agentNameHint: 'Test', tokenUrl: token.url, preferredPort: 0,
+    registration: { clientId: 'oaiapp_returning', expectedSubject: 'a-different-subject' },
+  })
+  const params = paramsOf(attempt.authorizationUrl)
+  nonce.value = params.get('nonce') ?? ''
+  const rejected = assert.rejects(attempt.result, /different account identity/)
+  await attempt.submit(`${attempt.redirectUri}?code=ok&state=${params.get('state')}`)
+  await rejected
+})
