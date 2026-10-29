@@ -37,6 +37,7 @@ async function sessionWith(token: TokenServer, revocationEndpoint?: string): Pro
     endpoints: {
       tokenUrl: token.url,
       preferredPort: 0,
+      verifyIdTokenSignature: async () => {}, // mock token server uses unsigned JWT fixtures
       ...revocationEndpoint === undefined ? {} : { revocationEndpoint },
     },
   })

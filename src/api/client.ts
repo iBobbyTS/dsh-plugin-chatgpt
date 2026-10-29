@@ -17,6 +17,7 @@
 import { RESOURCE } from '../auth/protocol.ts'
 import { createSseDecoder, decodeEvent, isPlanUsageCode, type ResponsesEvent } from './events.ts'
 import { toResponsesBody, type NeutralRequest, type ResponsesBody } from '../convert/request.ts'
+import { normalizeFailureCode } from './failure.ts'
 import type { ListedModel } from '../models/describe.ts'
 
 /** Endpoints this client talks to. */
@@ -44,7 +45,7 @@ export class ApiError extends Error {
   constructor(message: string, code: string, status?: number) {
     super(message)
     this.name = 'ApiError'
-    this.code = code
+    this.code = normalizeFailureCode(code, message, status)
     this.planUsage = isPlanUsageCode(code)
     if (status !== undefined) this.status = status
   }
@@ -163,6 +164,25 @@ export interface StreamTurnOptions {
   request: NeutralRequest
   endpoints?: ClientEndpoints
   signal?: AbortSignal
+  idleTimeoutMs?: number
+}
+
+/** Read a chunk with an idle deadline instead of waiting forever on a live socket. */
+export async function readWithIdleTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>, timeoutMs: number,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error('invalid stream idle timeout')
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new ApiError('ChatGPT response stream idle timeout', 'TIMEOUT')), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
 }
 
 /**
@@ -178,12 +198,27 @@ export interface StreamTurnOptions {
  */
 export async function* streamTurn(options: StreamTurnOptions): AsyncGenerator<ResponsesEvent, void, undefined> {
   const body: ResponsesBody = toResponsesBody(options.request)
-  const response = await fetch(`${baseOf(options.endpoints)}/responses`, {
-    method: 'POST',
-    headers: headersFor(options.accessToken, body.prompt_cache_key),
-    body: JSON.stringify(body),
-    ...options.signal === undefined ? {} : { signal: options.signal },
-  })
+  const idleTimeoutMs = options.idleTimeoutMs ?? 300_000
+  if (!Number.isSafeInteger(idleTimeoutMs) || idleTimeoutMs <= 0) {
+    throw new Error('invalid stream idle timeout')
+  }
+  const connectTimeout = new AbortController()
+  const connectSignal = options.signal === undefined
+    ? connectTimeout.signal : AbortSignal.any([options.signal, connectTimeout.signal])
+  const deadline = setTimeout(() => {
+    connectTimeout.abort(new ApiError('ChatGPT response headers timed out', 'TIMEOUT'))
+  }, idleTimeoutMs)
+  let response: Response
+  try {
+    response = await fetch(`${baseOf(options.endpoints)}/responses`, {
+      method: 'POST',
+      headers: headersFor(options.accessToken, body.prompt_cache_key),
+      body: JSON.stringify(body),
+      signal: connectSignal,
+    })
+  } finally {
+    clearTimeout(deadline)
+  }
   if (!response.ok) {
     throw errorOf(await response.text().catch(() => ''), response.status)
   }
@@ -197,7 +232,7 @@ export async function* streamTurn(options: StreamTurnOptions): AsyncGenerator<Re
   let terminal = false
   try {
     while (!terminal) {
-      const { done, value } = await reader.read()
+      const { done, value } = await readWithIdleTimeout(reader, idleTimeoutMs)
       const payloads = done === true
         ? decoder.flush()
         : decoder.push(text.decode(value, { stream: true }))

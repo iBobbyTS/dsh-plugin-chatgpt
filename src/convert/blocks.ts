@@ -1,6 +1,7 @@
 /** Responses item indexes remain distinct across interleaved text, reasoning and tools. */
 import type { ResponsesEvent, ResponsesUsage, WireIdentity } from '../api/events.ts'
 import { createReplay, outputBlock, outputMatchesBlock, type OutputItem, type ReplayBlock, type ReplayContext, type ReplayEnvelope } from './replay.ts'
+import { normalizeFailureCode } from '../api/failure.ts'
 
 export type ToolCallBlock = Extract<ReplayBlock, { type: 'tool-call' }>
 export type TextBlock = { type: 'text', text: string }
@@ -248,10 +249,14 @@ export class BlockTranslator {
         const replayState = this.context === undefined || !this.replayable || output.some(item => item === undefined)
           ? undefined : createReplay(this.context, output as OutputItem[], this.emitted.map(state => state.block))
         if (event.usage !== undefined) chunks.push({ type: 'usage', usage: event.usage })
+        const hasToolCalls = this.emitted.some(state => state.block.type === 'tool-call' && state.block.name.length > 0)
+        const hasAnswer = this.emitted.some(state => state.block.type === 'text' && state.block.text.trim().length > 0)
         chunks.push({
           type: 'finish',
-          reason: { kind: this.emitted.some(state => state.block.type === 'tool-call') ? 'tool-calls' : 'stop' },
-          ...replayState === undefined ? {} : { replayState },
+          reason: !hasToolCalls && !hasAnswer
+            ? { kind: 'error', failure: { code: 'EMPTY_RESPONSE', message: 'the model completed without an answer or executable tool call' } }
+            : { kind: hasToolCalls ? 'tool-calls' : 'stop' },
+          ...!hasToolCalls && !hasAnswer || replayState === undefined ? {} : { replayState },
         })
         this.terminal = true
         return chunks
@@ -259,10 +264,21 @@ export class BlockTranslator {
       case 'incomplete':
       case 'failed': {
         this.terminal = true
+        const reason: Extract<AdapterChunk, { type: 'finish' }>['reason'] = event.kind === 'incomplete'
+          ? event.reason === 'max_output_tokens'
+            ? { kind: 'max-tokens' }
+            : { kind: 'error', failure: {
+              code: event.reason === 'content_filter' ? 'CONTENT_FILTER' : 'INCOMPLETE_RESPONSE',
+              message: `the provider returned an incomplete response (${event.reason})`,
+            } }
+          : { kind: 'error', failure: {
+            message: event.message,
+            code: normalizeFailureCode(event.code, event.message),
+          } }
         return [
           ...this.endAll(),
           ...event.usage === undefined ? [] : [{ type: 'usage' as const, usage: event.usage }],
-          { type: 'finish', reason: event.kind === 'incomplete' ? { kind: 'max-tokens' } : { kind: 'error', failure: { message: event.message, code: event.code } } },
+          { type: 'finish', reason },
         ]
       }
       default: break

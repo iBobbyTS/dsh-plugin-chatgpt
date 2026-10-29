@@ -52,9 +52,10 @@ describe('BlockTranslator usage', () => {
   it('still finishes a call the provider reported no usage for', () => {
     const translator = new BlockTranslator()
 
+    translator.push({ kind: 'text', delta: 'ok' })
     const types = translator.push({ kind: 'completed' }).map(chunk => chunk.type)
 
-    assert.deepEqual(types, ['finish'])
+    assert.deepEqual(types, ['block-end', 'finish'])
   })
 })
 

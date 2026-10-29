@@ -312,38 +312,48 @@ export function createSseDecoder(): {
   push(chunk: string): string[]
   flush(): string[]
 } {
-  let buffer = ''
+  // SSE accepts CRLF, LF, and CR; a CRLF pair can straddle network chunks.
+  let line = ''
+  let lines: string[] = []
+  let afterCr = false
+
+  const endLine = (frames: string[]): void => {
+    if (line.length === 0) {
+      if (lines.length > 0) frames.push(lines.join('\n'))
+      lines = []
+    } else if (line.startsWith('data:')) {
+      lines.push(line.slice(5).trimStart())
+    }
+    line = ''
+  }
+
   return {
     push(chunk: string): string[] {
-      buffer += chunk
-      const payloads: string[] = []
-      let separator = buffer.indexOf('\n\n')
-      while (separator !== -1) {
-        const frame = buffer.slice(0, separator)
-        buffer = buffer.slice(separator + 2)
-        const payload = dataOf(frame)
-        if (payload !== undefined) payloads.push(payload)
-        separator = buffer.indexOf('\n\n')
+      const frames: string[] = []
+      for (const char of chunk) {
+        if (afterCr) {
+          afterCr = false
+          if (char === '\n') continue
+        }
+        if (char === '\r') {
+          endLine(frames)
+          afterCr = true
+        } else if (char === '\n') {
+          endLine(frames)
+        } else {
+          line += char
+        }
       }
-      return payloads
+      return frames
     },
     flush(): string[] {
-      const frame = buffer
-      buffer = ''
-      const payload = frame.length === 0 ? undefined : dataOf(frame)
-      return payload === undefined ? [] : [payload]
+      const frames: string[] = []
+      if (line.length > 0) endLine(frames)
+      if (lines.length > 0) frames.push(lines.join('\n'))
+      line = ''
+      lines = []
+      afterCr = false
+      return frames
     },
   }
-}
-
-/** The joined `data:` lines of one frame, or `undefined` when it carries none. */
-function dataOf(frame: string): string | undefined {
-  const lines = frame.split('\n')
-  const data: string[] = []
-  for (const line of lines) {
-    // Comments (leading ':') are keep-alives; every other field name is
-    // ignored except `data`, which is the only one this endpoint uses.
-    if (line.startsWith('data:')) data.push(line.slice(5).trimStart())
-  }
-  return data.length === 0 ? undefined : data.join('\n')
 }

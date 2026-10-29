@@ -25,7 +25,7 @@ import { ChatGptAuth } from './auth/manager.ts'
 import { ChatGptController } from './controller.ts'
 import { ChatGptSession } from './session.ts'
 import type { AdapterChunk } from './convert/blocks.ts'
-import { requestOf } from './convert/harness.ts'
+import { requestOfWithImages, type ReadImage } from './convert/harness.ts'
 
 /**
  * Route and endpoint policy for one installation.
@@ -49,6 +49,8 @@ export const Config = z.object({
   contextWindowLimit: z.number().step(1).min(1024).volatile(),
   /** Exact model IDs with budgets that override the global context budget. */
   modelContextWindowLimits: z.dict(z.number().step(1).min(1024)).volatile(),
+  /** SSE idle deadline; default 300000 ms. */
+  streamIdleTimeoutMs: z.number().step(1).min(1000).volatile(),
 })
 
 /** The configuration one installation supplies, as the harness resolves it. */
@@ -59,6 +61,7 @@ export type Config = {
   baseUrl: Volatile<string>
   contextWindowLimit: Volatile<number>
   modelContextWindowLimits: Volatile<Record<string, number>>
+  streamIdleTimeoutMs: Volatile<number>
 }
 
 /** What this plugin calls itself in diagnostics. */
@@ -127,7 +130,7 @@ export class HarnessAdapter extends LlmAdapter {
    * @param inner - the adapter that talks to the API.
    * @param route - the provider route this instance serves.
    */
-  constructor(inner: ChatGptAdapter, route: string) {
+  constructor(inner: ChatGptAdapter, route: string, private readonly readImage?: ReadImage) {
     super()
     this.inner = inner
     this.route = route
@@ -152,11 +155,9 @@ export class HarnessAdapter extends LlmAdapter {
   }
 
   override async *stream(options: GenerateOptions): AsyncGenerator<StreamChunk, void, undefined> {
-    const chunks: AsyncGenerator<AdapterChunk, void, undefined> = this.inner.stream(
-      options.provider,
-      requestOf(options),
-    )
     try {
+      const request = await requestOfWithImages(options, this.readImage)
+      const chunks: AsyncGenerator<AdapterChunk, void, undefined> = this.inner.stream(options.provider, request)
       for await (const chunk of chunks) yield chunk as unknown as StreamChunk
     } catch (error) {
       throw asHostError(error, 'chatgpt_request_failed')
@@ -200,13 +201,22 @@ export function apply(ctx: Context, config: Config): void {
     displayName,
     contextWindowLimit: () => config.contextWindowLimit.get(),
     modelContextWindowLimits: () => config.modelContextWindowLimits.get(),
+    streamIdleTimeoutMs: () => config.streamIdleTimeoutMs.get(),
     // A listing that recovers must clear a cached provider failure in the
     // browser's model selector; see the callback's documentation.
     onListingRecovered: () => { ctx.emit('llm/adapters-updated') },
     ...baseUrl.length === 0 ? {} : { baseUrl },
   })
 
-  const adapter = new HarnessAdapter(inner, route)
+  const adapter = new HarnessAdapter(inner, route, async (ref, signal) => {
+    const attachments = ctx.get('attachments') as {
+      readImage(ref: unknown, signal?: AbortSignal): Promise<{ data: Uint8Array, ref: { mediaType: string } }>
+    } | undefined
+    if (attachments === undefined) {
+      throw new LlmError('ChatGPT vision input requires the DSH attachment store', 'UNSUPPORTED')
+    }
+    return attachments.readImage(ref, signal)
+  })
   const handle: AdapterRegistrationHandle = ctx.llm.registerAdapter([route], adapter)
   ctx.effect(() => () => { handle() })
 

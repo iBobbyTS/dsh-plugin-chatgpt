@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto'
 import { ensureHostId } from './host-id.ts'
 import { beginSignIn, type SignInAttempt, type SignInOptions } from './sign-in.ts'
 import { refreshCredential, RefreshRefusedError } from './refresh.ts'
+import { withCredentialFileLock } from './file-lock.ts'
 import {
   emptyDocument, readDocument, writeDocument, type ChatGptStoreDocument,
 } from './store.ts'
@@ -53,6 +54,8 @@ export interface ChatGptAuthOptions {
     authorizeUrl?: string
     tokenUrl?: string
     preferredPort?: number
+    /** Test-only signature verifier for synthetic issuer fixtures. */
+    verifyIdTokenSignature?: SignInOptions['verifyIdTokenSignature']
     /** Override the revocation endpoint. */
     revocationEndpoint?: string
     /** Override the discovery document that names the revocation endpoint. */
@@ -183,23 +186,41 @@ export class ChatGptAuth {
     return this.rotate(current, signal)
   }
 
-  /** Refresh under the single-flight promise and persist the rotation. */
+  /** Refresh under a cross-process file lock; another process may have rotated this grant first. */
   private async runRefresh(current: ChatGptCredential, signal?: AbortSignal): Promise<ChatGptCredential> {
-    const key = Object.entries(this.load().accounts)
-      .find(([, stored]) => stored.replayNamespace === current.replayNamespace)?.[0]
-    if (key === undefined) throw new Error('the authorization was removed before refresh')
-    const rotated = await refreshCredential(current, {
-      ...this.options.endpoints?.tokenUrl === undefined ? {} : { tokenUrl: this.options.endpoints.tokenUrl },
-      ...signal === undefined ? {} : { signal },
-    })
-    const document = this.load()
-    if (document.accounts[key]?.replayNamespace !== current.replayNamespace) {
-      throw new Error('the authorization changed or was removed during refresh')
-    }
-    // A different account may have become active while this exchange was in
-    // flight. Update only the captured grant, without switching accounts back.
-    this.save({ ...document, accounts: { ...document.accounts, [key]: rotated } })
-    return rotated
+    return withCredentialFileLock(this.file, async () => {
+      const document = readDocument(this.file)
+      const key = Object.entries(document?.accounts ?? {})
+        .find(([, stored]) => stored.replayNamespace === current.replayNamespace)?.[0]
+      if (document === undefined || key === undefined) {
+        throw new Error('the authorization was removed before refresh')
+      }
+      const latest = document.accounts[key]!
+      if (latest.refreshToken !== current.refreshToken) {
+        // A concurrent DSH process already rotated the single-use refresh token.
+        this.document = document
+        this.loaded = true
+        return latest
+      }
+      const timeout = AbortSignal.timeout(30_000)
+      const refreshSignal = signal === undefined ? timeout : AbortSignal.any([signal, timeout])
+      const rotated = await refreshCredential(latest, {
+        ...this.options.endpoints?.tokenUrl === undefined ? {} : { tokenUrl: this.options.endpoints.tokenUrl },
+        signal: refreshSignal,
+      })
+      const reloaded = readDocument(this.file)
+      if (reloaded === undefined || reloaded.accounts[key]?.refreshToken !== latest.refreshToken) {
+        throw new Error('the authorization changed or was removed during refresh')
+      }
+      // Preserve activity switches and other account changes made during the HTTP call.
+      this.save({ ...reloaded, accounts: { ...reloaded.accounts, [key]: rotated } })
+      return rotated
+    }, signal)
+  }
+
+  /** Force refresh the exact authorization that received an HTTP token refusal. */
+  renewFor(credential: ChatGptCredential, signal?: AbortSignal): Promise<ChatGptCredential> {
+    return this.rotate(credential, signal)
   }
 
   /**
@@ -239,11 +260,13 @@ export class ChatGptAuth {
       ...this.options.endpoints?.authorizeUrl === undefined ? {} : { authorizeUrl: this.options.endpoints.authorizeUrl },
       ...this.options.endpoints?.tokenUrl === undefined ? {} : { tokenUrl: this.options.endpoints.tokenUrl },
       ...this.options.endpoints?.preferredPort === undefined ? {} : { preferredPort: this.options.endpoints.preferredPort },
+      ...this.options.endpoints?.verifyIdTokenSignature === undefined ? {} : { verifyIdTokenSignature: this.options.endpoints.verifyIdTokenSignature },
       // A previously issued client id skips registration entirely, which is the
       // documented path for a returning account on the same installation.
       ...existing === undefined ? {} : {
         registration: {
           clientId: existing.clientId,
+          ...stored?.subject === undefined ? {} : { expectedSubject: stored.subject },
           ...existing.email === undefined ? {} : { loginHint: existing.email },
         },
       },
