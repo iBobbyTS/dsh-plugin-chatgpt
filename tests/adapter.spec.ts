@@ -179,25 +179,6 @@ describe('ChatGptAdapter', () => {
     assert.equal(resolved.reasoning?.defaultEffort, 'medium')
   })
 
-  it('follows each account model default without imposing a shared context cap', async () => {
-    const models = [
-      { slug: 'gpt-6.1-sol', context_window: 500000, max_context_window: 872000 },
-      { slug: 'gpt-6-astra', context_window: 272000, max_context_window: 872000 },
-      { slug: 'narrow', context_window: 200000, max_context_window: 400000 },
-      { slug: 'future-wide', context_window: 1000000, max_context_window: 1050000 },
-    ]
-    const endpointUrl = await endpoint({
-      listing: { models },
-    })
-    const adapter = adapterFor(await signedIn(), endpointUrl.url)
-
-    for (const model of models) {
-      const resolved = await adapter.resolveModel('chatgpt', model.slug)
-      assert.equal(resolved.context.contextWindow, model.context_window, model.slug)
-      assert.equal(resolved.systemPromptUpdate, 'in-history')
-    }
-  })
-
   it('uses live explicit context budgets without clamping them to catalog maxima', async () => {
     const endpointUrl = await endpoint({
       listing: { models: [
@@ -210,7 +191,7 @@ describe('ChatGptAdapter', () => {
       auth: new ChatGptAuth({ stateDir: await signedIn(), agentNameHint: 'DeepSeek Harness' }),
       baseUrl: endpointUrl.url, contextWindowLimit: () => limit,
     })
-    assert.equal((await adapter.resolveModel('chatgpt', 'wide')).context.contextWindow, 500000)
+    assert.equal((await adapter.resolveModel('chatgpt', 'wide')).context.contextWindow, 1000000)
     limit = 512000
     assert.equal((await adapter.resolveModel('chatgpt', 'wide')).context.contextWindow, 512000)
     limit = 1000000
@@ -224,10 +205,10 @@ describe('ChatGptAdapter', () => {
     assert.ok(small.defaultMaxTokens !== undefined)
     assert.ok(small.defaultMaxTokens < small.context.contextWindow)
     limit = undefined
-    assert.equal((await adapter.resolveModel('chatgpt', 'wide')).context.contextWindow, 500000)
+    assert.equal((await adapter.resolveModel('chatgpt', 'wide')).context.contextWindow, 1000000)
   })
 
-  it('keeps an explicit context budget across catalog changes and restores the latest default when cleared', async () => {
+  it('keeps an explicit context budget across catalog changes and restores the model-ID default when cleared', async () => {
     let contextWindow = 272000
     let maxContextWindow = 872000
     const endpointUrl = await endpoint({
@@ -244,10 +225,10 @@ describe('ChatGptAdapter', () => {
     })
     const resolvedWindow = async () => (await adapter.resolveModel('chatgpt', 'gpt-6.1-sol')).context.contextWindow
 
-    assert.equal(await resolvedWindow(), 272000)
+    assert.equal(await resolvedWindow(), 1000000)
     contextWindow = 500000
     clock += 61000
-    assert.equal(await resolvedWindow(), 500000)
+    assert.equal(await resolvedWindow(), 1000000)
     limit = 1000000
     assert.equal(await resolvedWindow(), 1000000)
     maxContextWindow = 1050000
@@ -258,7 +239,7 @@ describe('ChatGptAdapter', () => {
     clock += 61000
     assert.equal(await resolvedWindow(), 1000000)
     limit = undefined
-    assert.equal(await resolvedWindow(), 128000)
+    assert.equal(await resolvedWindow(), 1000000)
   })
 
   it('honors an explicit context budget even when no catalog maximum is advertised', async () => {
@@ -267,7 +248,7 @@ describe('ChatGptAdapter', () => {
     })
     const adapter = adapterFor(await signedIn(), endpointUrl.url)
 
-    assert.equal((await adapter.resolveModel('chatgpt', 'narrow')).context.contextWindow, 200000)
+    assert.equal((await adapter.resolveModel('chatgpt', 'narrow')).context.contextWindow, 1000000)
     const expanded = new ChatGptAdapter({
       auth: new ChatGptAuth({ stateDir: await signedIn(), agentNameHint: 'DeepSeek Harness' }),
       baseUrl: endpointUrl.url, contextWindowLimit: 1000000,
@@ -293,7 +274,7 @@ describe('ChatGptAdapter', () => {
     }
   })
 
-  it('prioritizes per-model context budgets over the global budget and account defaults', async () => {
+  it('prioritizes per-model context budgets over the global budget and model-ID defaults', async () => {
     const endpointUrl = await endpoint({ listing: { models: [
       { slug: 'gpt-6-astra', context_window: 272000, max_context_window: 872000 },
       { slug: 'gpt-6.1-sol', context_window: 500000, max_context_window: 872000 },
@@ -310,10 +291,10 @@ describe('ChatGptAdapter', () => {
 
     const withoutGlobal = new ChatGptAdapter({ auth, baseUrl: endpointUrl.url, modelContextWindowLimits })
     assert.equal((await withoutGlobal.resolveModel('chatgpt', 'gpt-6-astra')).context.contextWindow, 1000000)
-    assert.equal((await withoutGlobal.resolveModel('chatgpt', 'gpt-6-luna')).context.contextWindow, 272000)
+    assert.equal((await withoutGlobal.resolveModel('chatgpt', 'gpt-6-luna')).context.contextWindow, 300000)
   })
 
-  it('reads live per-model budgets and falls back through the current global and catalog values', async () => {
+  it('reads live per-model budgets and falls back through the current global and model-ID default values', async () => {
     let catalogWindow = 500000
     const endpointUrl = await endpoint({ onRequest: path => path.startsWith('/models') ? {
       status: 200,
@@ -339,9 +320,9 @@ describe('ChatGptAdapter', () => {
     modelLimits = {}
     assert.equal(await resolvedWindow(), 650000)
     globalLimit = undefined
-    assert.equal(await resolvedWindow(), 700000)
+    assert.equal(await resolvedWindow(), 1000000)
     modelLimits = undefined
-    assert.equal(await resolvedWindow(), 700000)
+    assert.equal(await resolvedWindow(), 1000000)
   })
 
   it('matches only own exact model IDs in per-model context budgets', async () => {
@@ -449,19 +430,17 @@ describe('ChatGptAdapter', () => {
     assert.ok(model?.reasoningEfforts?.some(effort => effort.id === 'none'))
   })
 
-  it('keeps the bundled default but honors explicit context budgets for unlisted models', async () => {
+  it('uses name-based context defaults even for unlisted models', async () => {
     const endpointUrl = await endpoint({ listing: { models: [] } })
     const adapter = adapterFor(await signedIn(), endpointUrl.url)
-
-    const resolved = await adapter.resolveModel('chatgpt', 'gpt-6-sol')
-
-    assert.equal(resolved.context.contextWindow, 272000)
-    assert.equal(resolved.defaultMaxTokens, 128000)
-    const expanded = new ChatGptAdapter({
-      auth: new ChatGptAuth({ stateDir: await signedIn(), agentNameHint: 'DeepSeek Harness' }),
-      baseUrl: endpointUrl.url, contextWindowLimit: 1000000,
-    })
-    assert.equal((await expanded.resolveModel('chatgpt', 'gpt-6-sol')).context.contextWindow, 1000000)
+    for (const [id, expected] of [
+      ['gpt-6-astra', 1000000], ['gpt-6.1-sol', 1000000],
+      ['gpt-6.1-terra', 500000], ['gpt-6-luna', 300000], ['future-model', 1000000], ['GPT-6-LUNA', 300000],
+    ] as const) {
+      const resolved = await adapter.resolveModel('chatgpt', id)
+      assert.equal(resolved.context.contextWindow, expected)
+      assert.ok((resolved.defaultMaxTokens ?? 0) < expected)
+    }
   })
 
   it('serves the listing from cache inside the window, then re-asks', async () => {

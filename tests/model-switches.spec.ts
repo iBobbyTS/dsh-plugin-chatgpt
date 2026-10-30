@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { ChatGptAdapter, isCodedError } from '../src/adapter.ts'
 import { ChatGptAuth } from '../src/auth/manager.ts'
 import { writeDocument, emptyDocument } from '../src/auth/store.ts'
+import { contextWindowOptions } from '../src/models/context.ts'
 import { readModelOverrides, writeModelOverrides } from '../src/models/switches.ts'
 
 const servers: Server[] = []
@@ -303,5 +304,121 @@ describe('model display names on the adapter', () => {
     const rows = await adapter.modelSwitches()
     assert.equal(rows.find(row => row.id === 'gpt-6-astra')?.disabled, true)
     assert.equal(rows.find(row => row.id === 'gpt-6.1-terra')?.name, 'Terra 9')
+  })
+})
+
+describe('model context windows', () => {
+  it('uses name defaults consistently in the page, offering and resolved model', async () => {
+    const adapter = adapterFor(await signedIn(), await endpoint())
+    const rows = await adapter.modelSwitches()
+    assert.deepEqual(rows.map(row => [row.id, row.contextWindow]), [
+      ['gpt-6-astra', 1000000], ['gpt-6.1-terra', 500000],
+    ])
+    for (const row of rows) {
+      assert.equal((await adapter.listModels()).find(model => model.id === row.id)?.contextWindow, row.contextWindow)
+      assert.equal((await adapter.resolveModel('chatgpt', row.id)).context.contextWindow, row.contextWindow)
+    }
+    // Editable names must not change the stable model-ID default.
+    await adapter.setModelName('gpt-6.1-terra', 'Astra')
+    assert.equal((await adapter.resolveModel('chatgpt', 'gpt-6.1-terra')).context.contextWindow, 500000)
+  })
+
+  it('persists every choice across adapters and catalog refreshes without clamping', async () => {
+    const stateDir = await signedIn()
+    const url = await endpoint()
+    let notifications = 0
+    const first = new ChatGptAdapter({
+      auth: new ChatGptAuth({ stateDir, agentNameHint: 'DeepSeek Harness' }), stateDir, baseUrl: url, includeUnlisted: false,
+      onModelSwitchesChanged: () => { notifications++ },
+    })
+    const second = adapterFor(stateDir, url)
+    for (const value of [1000000, 800000, 500000, 300000]) {
+      const rows = await first.setModelContextWindow('gpt-6-astra', value)
+      assert.equal(rows.find(row => row.id === 'gpt-6-astra')?.contextWindow, value)
+      second.forgetListing()
+      assert.equal((await second.resolveModel('chatgpt', 'gpt-6-astra')).context.contextWindow, value)
+      assert.equal((await second.listModels()).find(row => row.id === 'gpt-6-astra')?.contextWindow, value)
+    }
+    assert.equal(notifications, 4)
+  })
+
+  it('keeps concurrent context, name and switch writes, then resets them together', async () => {
+    const stateDir = await signedIn()
+    const url = await endpoint()
+    const first = adapterFor(stateDir, url)
+    const second = adapterFor(stateDir, url)
+    await Promise.all([
+      first.setModelContextWindow('gpt-6-astra', 800000),
+      second.setModelName('gpt-6-astra', 'Custom'),
+      second.setModelDisabled('gpt-6-astra', true),
+    ])
+    const row = (await first.modelSwitches()).find(row => row.id === 'gpt-6-astra')
+    assert.equal(row?.contextWindow, 800000)
+    assert.equal(row?.name, 'Custom')
+    assert.equal(row?.disabled, true)
+    assert.equal((await first.resolveModel('chatgpt', 'gpt-6-astra')).context.contextWindow, 800000)
+    await first.resetModels()
+    assert.deepEqual(await readModelOverrides(stateDir), { disabled: [], names: {} })
+    assert.equal((await second.resolveModel('chatgpt', 'gpt-6-astra')).context.contextWindow, 1000000)
+  })
+
+  it('rejects non-choice values and unknown models without changing the file', async () => {
+    const stateDir = await signedIn()
+    const adapter = adapterFor(stateDir, await endpoint())
+    await adapter.setModelContextWindow('gpt-6-astra', 800000)
+    const before = await readFile(join(stateDir, 'models.json'), 'utf8')
+    for (const value of [0, -1, 1024, 800001, 500000.5, NaN, Infinity, '800000', null]) {
+      await assert.rejects(adapter.setModelContextWindow('gpt-6-astra', value as number),
+        error => isCodedError(error) && error.code === 'chatgpt_invalid_model_switch')
+    }
+    await assert.rejects(adapter.setModelContextWindow('missing', 500000),
+      error => isCodedError(error) && error.code === 'chatgpt_unknown_model')
+    assert.equal(await readFile(join(stateDir, 'models.json'), 'utf8'), before)
+  })
+
+  it('validates persisted context choices even in a legacy file without names', async () => {
+    const stateDir = await signedIn()
+    for (const contextWindows of [{ model: 272000 }, [], null, { model: '800000' }]) {
+      await writeFile(join(stateDir, 'models.json'), JSON.stringify({ disabled: [], contextWindows }))
+      await assert.rejects(readModelOverrides(stateDir), /models.json/)
+    }
+    await writeFile(join(stateDir, 'models.json'), JSON.stringify({ disabled: [], contextWindows: { model: 800000 } }))
+    assert.deepEqual(await readModelOverrides(stateDir), { disabled: [], names: {}, contextWindows: { model: 800000 } })
+  })
+})
+
+
+describe('configured context values on the model page', () => {
+  it('shows custom config until a fixed selection overrides it, and reset restores config', async () => {
+    const stateDir = await signedIn()
+    const modelLimits = { 'gpt-6-astra': 750000 }
+    const adapter = new ChatGptAdapter({
+      auth: new ChatGptAuth({ stateDir, agentNameHint: 'DeepSeek Harness' }),
+      stateDir, baseUrl: await endpoint(), includeUnlisted: false,
+      contextWindowLimit: 650000, modelContextWindowLimits: () => modelLimits,
+    })
+    let rows = await adapter.modelSwitches()
+    assert.equal(rows[0]?.contextWindow, 750000)
+    assert.equal(rows[0]?.defaultContextWindow, 750000)
+    assert.equal(rows[1]?.contextWindow, 650000)
+    await adapter.setModelContextWindow('gpt-6-astra', 800000)
+    modelLimits['gpt-6-astra'] = 720000
+    assert.equal((await adapter.resolveModel('chatgpt', 'gpt-6-astra')).context.contextWindow, 800000)
+    rows = await adapter.modelSwitches()
+    assert.equal(rows[0]?.contextWindow, 800000)
+    assert.equal(rows[0]?.defaultContextWindow, 720000)
+    await adapter.resetModels()
+    assert.equal((await adapter.resolveModel('chatgpt', 'gpt-6-astra')).context.contextWindow, 720000)
+  })
+
+  it('sorts arbitrary current config values into descending disabled options without duplicates', () => {
+    for (const current of [2000000, 900000, 750000, 400000, 1024]) {
+      const options = contextWindowOptions(current)
+      assert.deepEqual(options.map(option => option.value), [1000000, 800000, 500000, 300000, current].sort((a,b) => b-a))
+      assert.deepEqual(options.filter(option => option.disabled), [{value: current, label: String(current), disabled: true}])
+    }
+    const fixed = contextWindowOptions(800000)
+    assert.equal(fixed.length, 4)
+    assert.ok(fixed.every(option => !option.disabled))
   })
 })

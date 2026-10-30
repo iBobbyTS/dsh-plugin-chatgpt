@@ -26,6 +26,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { REMOTE_NAMESPACE } from '../remote-methods.ts'
 import { remoteContribution } from './remote.ts'
 import { unwrap, type RemoteResult } from './result.ts'
+import { contextWindowOptions } from '../models/context.ts'
+import type { ModelSwitchView } from '../models/switches.ts'
 import { installCardStyles } from './styles.ts'
 
 /** The browser context this plugin runs against. */
@@ -68,16 +70,6 @@ interface SignOutOutcome {
   revocationError?: string
 }
 
-/** One roster model as the card's model list shows it. */
-interface ModelSwitchView {
-  id: string
-  /** Display name from the roster entry, before any hand-set override. */
-  defaultName: string
-  /** The name the selector shows: the hand-set override, else the roster's. */
-  name: string
-  disabled: boolean
-}
-
 /** The write this card has in flight, so the rows it touches wait. */
 type PendingWrite = { kind: 'model', id: string } | { kind: 'reset' }
 
@@ -101,6 +93,7 @@ interface ChatGptRemote {
   setModelDisabled(model: string, disabled: boolean): Promise<RemoteResult<ModelSwitchView[]>>
   /** Set one model's display name; `undefined` restores the roster's own. */
   setModelName(model: string, name: string | undefined): Promise<RemoteResult<ModelSwitchView[]>>
+  setModelContextWindow(model: string, contextWindow: number): Promise<RemoteResult<ModelSwitchView[]>>
   /** Clear every switch and name override; returns the resulting switch list. */
   resetModels(): Promise<RemoteResult<ModelSwitchView[]>>
 }
@@ -427,7 +420,8 @@ export function ChatGptCard({ ctx, mounting }: { ctx: ClientContext, mounting: P
                     // Everything already reads as the roster produced it: there is
                     // nothing to restore, so the button stands but does nothing.
                     // A click while another write is queued just lines up behind it.
-                    disabled={switches.every(row => !row.disabled && row.name === row.defaultName)}
+                    disabled={switches.every(row => !row.disabled && row.name === row.defaultName
+                      && row.contextWindow === row.defaultContextWindow)}
                     onClick={resetAll}
                   >
                     Restore defaults
@@ -449,6 +443,10 @@ export function ChatGptCard({ ctx, mounting }: { ctx: ClientContext, mounting: P
                     }}
                     onToggle={offered => { toggle(model.id, offered) }}
                     onRename={name => { renameModel(model.id, name) }}
+                    onContextWindow={value => {
+                      void writeSwitches({ kind: 'model', id: model.id },
+                        remote => remote.setModelContextWindow(model.id, value))
+                    }}
                   />
                 ))}
               </div>
@@ -575,6 +573,7 @@ function NameRow(props: {
   onDropDraft: () => void
   onToggle: (offered: boolean) => void
   onRename: (name: string | undefined) => void
+  onContextWindow: (value: number) => void
 }): React.ReactNode {
   const { model } = props
   const commit = (): void => {
@@ -612,6 +611,18 @@ function NameRow(props: {
         }}
       />
       <span className="dsh-chatgpt-slug" title={model.id}>{model.id}</span>
+      <select
+        className="dsh-chatgpt-contextselect"
+        aria-label={`Context window for ${model.id}`}
+        title="Context window"
+        value={model.contextWindow}
+        disabled={props.saving}
+        onChange={event => { props.onContextWindow(Number(event.currentTarget.value)) }}
+      >
+        {contextWindowOptions(model.contextWindow).map(option => (
+          <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>
+        ))}
+      </select>
       <Switch
         checked={!model.disabled}
         onChange={offered => { props.onToggle(offered) }}

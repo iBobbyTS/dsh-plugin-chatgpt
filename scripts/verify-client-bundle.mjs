@@ -178,7 +178,7 @@ assert.equal(mounted[0].package, packageName)
 assert.deepEqual(
   mounted[0].descriptors.map(descriptor => `${descriptor.namespace}/${descriptor.method}`),
   ['chatgpt/status', 'chatgpt/begin', 'chatgpt/submit', 'chatgpt/cancel', 'chatgpt/signOut',
-    'chatgpt/modelSwitches', 'chatgpt/setModelDisabled', 'chatgpt/setModelName', 'chatgpt/resetModels'],
+    'chatgpt/modelSwitches', 'chatgpt/setModelDisabled', 'chatgpt/setModelName', 'chatgpt/setModelContextWindow', 'chatgpt/resetModels'],
   'every method the card calls must be mounted, or the call fails at the click',
 )
 

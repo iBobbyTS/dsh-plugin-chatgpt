@@ -45,7 +45,7 @@ export const Config = z.object({
   stateDir: z.string().required().volatile(),
   /** API base URL override; defaults to the documented resource. */
   baseUrl: z.string().volatile(),
-  /** Explicit context budget used as-is; absent follows each model's account-catalog default. */
+  /** Explicit context budget used as-is; absent uses model-ID defaults. */
   contextWindowLimit: z.number().step(1).min(1024).volatile(),
   /** Exact model IDs with budgets that override the global context budget. */
   modelContextWindowLimits: z.dict(z.number().step(1).min(1024)).volatile(),

@@ -277,8 +277,13 @@ export class ChatGptSession {
     return await this.adapter.setModelName(model, name)
   }
 
+  /** Set one model's context budget to a fixed model-page choice. */
+  async setModelContextWindow(model: string, contextWindow: number): Promise<readonly ModelSwitchView[]> {
+    return await this.adapter.setModelContextWindow(model, contextWindow)
+  }
+
   /**
-   * Clear every switch and display-name override.
+   * Clear model switches, display names and context choices.
    * @returns the switch list after the reset is persisted.
    */
   async resetModels(): Promise<readonly ModelSwitchView[]> {

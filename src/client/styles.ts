@@ -168,11 +168,11 @@ li:has([data-chatgpt-signin="out"]) span[class*="rowName"]::after {
    switch — the page's own model-row grid, one column narrower. */
 .dsh-chatgpt-model {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 76px auto;
   align-items: center;
   gap: 6px;
 }
-.dsh-chatgpt-nameinput {
+.dsh-chatgpt-nameinput, .dsh-chatgpt-contextselect {
   box-sizing: border-box;
   width: 100%;
   height: 28px;
@@ -185,7 +185,7 @@ li:has([data-chatgpt-signin="out"]) span[class*="rowName"]::after {
   background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-primary);
 }
-.dsh-chatgpt-nameinput:focus {
+.dsh-chatgpt-nameinput:focus, .dsh-chatgpt-contextselect:focus {
   outline: none;
   border-color: var(--dsw-alias-state-business-primary);
 }
@@ -198,6 +198,14 @@ li:has([data-chatgpt-signin="out"]) span[class*="rowName"]::after {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 540px) {
+  .dsh-chatgpt-model { grid-template-columns: minmax(0, 1fr) 76px auto; }
+  .dsh-chatgpt-nameinput { grid-column: 1; grid-row: 1; }
+  .dsh-chatgpt-slug { grid-column: 1; grid-row: 2; }
+  .dsh-chatgpt-contextselect { grid-column: 2; grid-row: 1 / 3; }
+  .dsh-chatgpt-model > :last-child { grid-column: 3; grid-row: 1 / 3; }
 }
 
 .dsh-chatgpt-actions { display: flex; gap: 8px; }

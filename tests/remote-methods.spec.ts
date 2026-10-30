@@ -150,7 +150,7 @@ describe('the client Remote table', () => {
       'chatgpt/signOut',
       'chatgpt/modelSwitches',
       'chatgpt/setModelDisabled',
-      'chatgpt/setModelName',
+      'chatgpt/setModelName', 'chatgpt/setModelContextWindow',
       'chatgpt/resetModels',
     ])
   })

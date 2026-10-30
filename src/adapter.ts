@@ -39,6 +39,7 @@ import { ROUTE_MAX_CONTEXT_WINDOW, ROUTE_MAX_OUTPUT_TOKENS, SERVED_MODELS, serve
 import {
   readModelOverrides, writeModelOverrides, type ModelOverridesFile, type ModelSwitchView,
 } from './models/switches.ts'
+import { defaultContextWindow, isContextWindow, type ContextWindow } from './models/context.ts'
 import type { ChatGptAuth } from './auth/manager.ts'
 import { RefreshRefusedError } from './auth/refresh.ts'
 
@@ -116,7 +117,7 @@ export interface ChatGptAdapterOptions {
    * route serves, and hiding them hides capability the account already has.
    */
   includeUnlisted?: boolean
-  /** Explicit DSH context budget takes precedence over catalog metadata; absent follows the default. */
+  /** Explicit DSH context budget takes precedence over catalog metadata; absent uses model-ID defaults. */
   contextWindowLimit?: number | (() => number | undefined)
   /** Exact model IDs mapped to context budgets, taking precedence over the global budget. */
   modelContextWindowLimits?: Readonly<Record<string, number>> | (() => Readonly<Record<string, number>> | undefined)
@@ -345,14 +346,8 @@ function codedCredentialFailure(auth: ChatGptAuth, error: unknown): CodedError {
 
 /** Describe a model and its selected compaction budget in the host's vocabulary. */
 function toHarnessResolved(
-  provider: string, model: DescribedModel, limit?: number, limitSetting = 'contextWindowLimit',
+  provider: string, model: DescribedModel, contextWindow: number,
 ): HarnessResolvedModel {
-  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1024)) {
-    throw new Error(`${limitSetting} must be a safe integer of at least 1024 tokens`)
-  }
-  // Like Pi's model override, an explicit budget is used verbatim. Catalog
-  // maxima describe the provider; they do not silently shrink the user's setting.
-  const contextWindow = limit ?? model.contextWindow
   return {
     provider,
     id: model.id,
@@ -434,11 +429,11 @@ export class ChatGptAdapter {
     const offered = overrides.disabled.size === 0
       ? models
       : models.filter(model => !overrides.disabled.has(model.id))
-    if (overrides.names.size === 0) return offered
-    return offered.map((model) => {
-      const name = overrides.names.get(model.id)
-      return name === undefined ? model : { ...model, name }
-    })
+    return offered.map(model => ({
+      ...model,
+      name: overrides.names.get(model.id) ?? model.name,
+      contextWindow: overrides.contextWindows.get(model.id) ?? this.configuredContextWindow(model.id),
+    }))
   }
 
   /**
@@ -460,6 +455,8 @@ export class ChatGptAdapter {
         defaultName: model.name,
         name: name ?? model.name,
         disabled: overrides.disabled.has(model.id),
+        contextWindow: overrides.contextWindows.get(model.id) ?? this.configuredContextWindow(model.id),
+        defaultContextWindow: this.configuredContextWindow(model.id),
       }
     })
   }
@@ -519,9 +516,21 @@ export class ChatGptAdapter {
     return await this.commitOverrides(overrides)
   }
 
+  /** Persist one fixed context choice and notify the host to resolve the model again. */
+  async setModelContextWindow(id: string, contextWindow: number): Promise<readonly ModelSwitchView[]> {
+    return this.changeModels(async () => {
+      await this.requireSwitchable(id)
+      if (!isContextWindow(contextWindow)) {
+        throw pluginCodedError('context window must be 1M, 800k, 500k or 300k', 'chatgpt_invalid_model_switch')
+      }
+      const overrides = await this.storedOverrides()
+      overrides.contextWindows.set(id, contextWindow)
+      return this.commitOverrides(overrides)
+    })
+  }
+
   /**
-   * Clear every switch and display-name override, restoring the roster as the
-   * account produces it.
+   * Clear model switches, display names and context choices.
    *
    * @returns the switch list after the reset is persisted.
    * @throws {CodedError} `chatgpt_switches_unavailable` when no state directory
@@ -536,11 +545,12 @@ export class ChatGptAdapter {
       throw pluginCodedError('model switches need the installation state directory', 'chatgpt_switches_unavailable')
     }
     const overrides = await this.storedOverrides()
-    if (overrides.disabled.size === 0 && overrides.names.size === 0) {
+    if (overrides.disabled.size === 0 && overrides.names.size === 0 && overrides.contextWindows.size === 0) {
       return await this.modelSwitches()
     }
     overrides.disabled.clear()
     overrides.names.clear()
+    overrides.contextWindows.clear()
     return await this.commitOverrides(overrides)
   }
 
@@ -572,11 +582,12 @@ export class ChatGptAdapter {
   }
 
   /** The persisted overrides as a mutable working copy. */
-  private async storedOverrides(): Promise<{ disabled: Set<string>, names: Map<string, string> }> {
+  private async storedOverrides(): Promise<{ disabled: Set<string>, names: Map<string, string>, contextWindows: Map<string, ContextWindow> }> {
     const file = this.stateDir === undefined
       ? { disabled: [] as readonly string[], names: {} as Readonly<Record<string, string>> }
       : await readModelOverrides(this.stateDir)
-    return { disabled: new Set(file.disabled), names: new Map(Object.entries(file.names)) }
+    return { disabled: new Set(file.disabled), names: new Map(Object.entries(file.names)),
+      contextWindows: new Map(Object.entries(file.contextWindows ?? {})) }
   }
 
   /**
@@ -585,7 +596,7 @@ export class ChatGptAdapter {
    * @returns the switch list as the persisted state now reads.
    */
   private async commitOverrides(
-    overrides: { disabled: ReadonlySet<string>, names: ReadonlyMap<string, string> },
+    overrides: { disabled: ReadonlySet<string>, names: ReadonlyMap<string, string>, contextWindows: ReadonlyMap<string, ContextWindow> },
   ): Promise<readonly ModelSwitchView[]> {
     const stateDir = this.stateDir
     if (stateDir === undefined) {
@@ -594,6 +605,7 @@ export class ChatGptAdapter {
     const file: ModelOverridesFile = {
       disabled: [...overrides.disabled],
       names: Object.fromEntries(overrides.names),
+      ...overrides.contextWindows.size === 0 ? {} : { contextWindows: Object.fromEntries(overrides.contextWindows) },
     }
     await writeModelOverrides(stateDir, file)
     // The listing cache is the unfiltered roster, so nothing here invalidates
@@ -735,10 +747,25 @@ export class ChatGptAdapter {
    * per call rather than cached, so an edit made in one DSH process is seen by
    * the next listing in another.
    */
-  private async modelOverrides(): Promise<{ disabled: ReadonlySet<string>, names: ReadonlyMap<string, string> }> {
-    if (this.stateDir === undefined) return { disabled: new Set(), names: new Map() }
-    const file = await readModelOverrides(this.stateDir)
-    return { disabled: new Set(file.disabled), names: new Map(Object.entries(file.names)) }
+  private async modelOverrides(): Promise<{ disabled: ReadonlySet<string>, names: ReadonlyMap<string, string>, contextWindows: ReadonlyMap<string, ContextWindow> }> {
+    return this.storedOverrides()
+  }
+
+  /** Configured budgets remain readable even when absent from the fixed UI choices. */
+  private configuredContextWindow(model: string): number {
+    const overrides = typeof this.modelContextWindowLimits === 'function'
+      ? this.modelContextWindowLimits() : this.modelContextWindowLimits
+    if (overrides !== undefined && (overrides === null || typeof overrides !== 'object' || Array.isArray(overrides))) {
+      throw new Error('modelContextWindowLimits must be an object keyed by exact model ID')
+    }
+    const modelLimit = overrides !== undefined && Object.hasOwn(overrides, model) ? overrides[model] : undefined
+    const limit = modelLimit !== undefined ? modelLimit
+      : typeof this.contextWindowLimit === 'function' ? this.contextWindowLimit() : this.contextWindowLimit
+    if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1024)) {
+      const setting = modelLimit === undefined ? 'contextWindowLimit' : `modelContextWindowLimits[${JSON.stringify(model)}]`
+      throw new Error(`${setting} must be a safe integer of at least 1024 tokens`)
+    }
+    return limit ?? defaultContextWindow(model)
   }
 
   /** Drop the cached listing, so the next question re-asks the account. */
@@ -763,16 +790,9 @@ export class ChatGptAdapter {
     const described = listed ?? describableModels([{ slug: model }])[0]
     /* c8 ignore next -- describableModels always answers for a non-empty slug */
     if (described === undefined) throw new Error(`no model named "${model}"`)
-    const overrides = typeof this.modelContextWindowLimits === 'function'
-      ? this.modelContextWindowLimits() : this.modelContextWindowLimits
-    if (overrides !== undefined && (overrides === null || typeof overrides !== 'object' || Array.isArray(overrides))) {
-      throw new Error('modelContextWindowLimits must be an object keyed by exact model ID')
-    }
-    const modelLimit = overrides !== undefined && Object.hasOwn(overrides, model) ? overrides[model] : undefined
-    const limit = modelLimit !== undefined ? modelLimit
-      : typeof this.contextWindowLimit === 'function' ? this.contextWindowLimit() : this.contextWindowLimit
-    return toHarnessResolved(provider, described, limit,
-      modelLimit === undefined ? 'contextWindowLimit' : `modelContextWindowLimits[${JSON.stringify(model)}]`)
+    const overrides = await this.modelOverrides()
+    const contextWindow = overrides.contextWindows.get(model) ?? this.configuredContextWindow(model)
+    return toHarnessResolved(provider, described, contextWindow)
   }
 
   /**

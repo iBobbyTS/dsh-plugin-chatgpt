@@ -43,12 +43,12 @@ discovery, Responses serialization, and its opaque replay envelope.
    addresses, and synthetic account labels are never used as replay identities.
    Sessionless calls omit cache identifiers. Missing/invalid namespaces disable
    both native replay and these identifiers until the credential is managed.
-6. Default context follows each model's account-catalog window, without a shared
-   fixed cap. An exact `modelContextWindowLimits` entry takes precedence over
-   the global `contextWindowLimit`; explicit values are used as-is, following
-   Pi's override behavior. Both are read when a model is resolved.
-   Default output reservation fits within half the selected budget. DSH still
-   decides when and how to compact; the adapter does not delete history.
+6. The Models page selects a fixed context budget per model: 1M, 800k, 500k,
+   or 300k. Saved choices override exact `modelContextWindowLimits` entries,
+   then the global `contextWindowLimit`, then the model-ID default. All settings
+   are read when the model is resolved. Default output reservation fits within
+   half the selected budget. DSH decides when and how to compact; the adapter
+   does not delete history.
 
 ## Why borrow Pi's approach
 
@@ -90,33 +90,32 @@ Corrected roles/order and the new cache identity change the initial wire prefix.
 Expect a cold request after upgrading. Model/effort switches, context compaction,
 tool changes, account changes, and normal cache expiry can still reduce reuse.
 The context budget does not impose a spending cap; SIWC rejects
-`max_output_tokens`. It follows the account catalog, so a model whose advertised
-window grows keeps more history before DSH compacts, and an explicit
-`contextWindowLimit` below that default compacts sooner.
+`max_output_tokens`. DSH computes its own compaction threshold and output
+headroom from the selected budget.
 
-Without an override, the context budget is the model's `contextWindow`.
-No fixed 272K, 500K, or 1M cap replaces the account default.
-A catalog refresh after the 60-second listing cache expires
-updates that default on the next model resolution. Missing account capacity
-metadata falls back to the bundled catalog or conservative unknown-model default;
-an unlisted measured model keeps that default. Observed route maximums remain
-descriptive metadata and do not impose a separate budget ceiling.
+Without a saved model-page choice or config override, the stable model ID
+(case-insensitive) determines the budget: `astra` or `sol` selects 1,000,000;
+`terra` selects 500,000; `luna` selects 300,000; all other IDs select 1,000,000.
+Editable display names do not affect these defaults. Catalog refreshes do not
+change the selected budget.
 
-The global `contextWindowLimit` and every `modelContextWindowLimits` value must
-be safe integers of at least 1,024 tokens. Model entries match exact,
-case-sensitive IDs; display names, prefixes, and wildcard patterns do not match.
-The precedence is `modelContextWindowLimits[model.id] ?? contextWindowLimit ?? model.contextWindow`.
-An explicit value is never clamped to the catalog default or maximum. For a model with a
-500,000 default and 872,000 maximum, `contextWindowLimit: 1000000` selects
-1,000,000. The same override works when maximum metadata is missing or the model
-is unlisted. Catalog refreshes do not shrink an explicit budget. Clearing the
-model entry restores the current global budget, or the latest account default
-if no global budget exists. Clearing all overrides restores each model's latest
-default. Both configuration fields are live DSH settings and are read on each
-model resolution. An invalid selected model value reports its configuration key
-instead of silently falling back. The global override applies to this provider's
-models, independently of Codex configuration; DSH still computes its own
-compaction threshold and output headroom.
+The four model-page choices are stored alongside model switches and names in
+`models.json`. Older files remain readable without a context field. Reads do
+not rewrite them. Saving a choice preserves other settings under the existing
+model-operation lock; resetting models clears all three kinds of saved override.
+
+Existing config fields remain live: `modelContextWindowLimits` entries match
+exact, case-sensitive model IDs and take precedence over `contextWindowLimit`.
+Their values must be safe integers of at least 1,024 tokens. A custom config
+value appears by its exact number in the dropdown's descending order as a
+disabled option; it remains visible until a fixed choice is saved. It cannot be
+reselected from the dropdown. Resetting models removes the saved choice and
+restores the current config value, or the model-ID default when config is absent.
+
+The complete priority is saved model-page choice, per-model config, global
+config, then model-ID default. Values are not clamped to catalog defaults or
+maximums, even for unlisted models. These budgets are independent of Codex
+settings and do not increase the service-side request limit.
 
 The model's published total context window, catalog metadata, and effective
 client budget are separate values. The official model pages list

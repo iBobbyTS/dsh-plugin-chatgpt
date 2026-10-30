@@ -56,6 +56,7 @@ export const REMOTE_METHODS: readonly RemoteMethod[] = [
   { method: 'modelSwitches', parameters: [] },
   { method: 'setModelDisabled', parameters: [{ wire: 'model' }, { wire: 'disabled' }] },
   { method: 'setModelName', parameters: [{ wire: 'model' }, { wire: 'name', optional: true }] },
+  { method: 'setModelContextWindow', parameters: [{ wire: 'model' }, { wire: 'contextWindow' }] },
   { method: 'resetModels', parameters: [] },
 ]
 

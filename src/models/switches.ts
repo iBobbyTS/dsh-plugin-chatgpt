@@ -17,6 +17,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { withCredentialFileLock } from '../auth/file-lock.ts'
+import { isContextWindow, type ContextWindow } from './context.ts'
 
 /** File name inside the installation's state directory. */
 const OVERRIDES_FILENAME = 'models.json'
@@ -31,6 +32,10 @@ export interface ModelSwitchView {
   name: string
   /** Whether the human switched this model off. */
   disabled: boolean
+  /** Effective context budget selected on the model page. */
+  contextWindow: number
+  /** Budget restored when the saved model-page choice is cleared. */
+  defaultContextWindow: number
 }
 
 /** The hand-set reshaping of the roster, as the file stores it. */
@@ -39,6 +44,8 @@ export interface ModelOverridesFile {
   disabled: readonly string[]
   /** Model id → display name the selector should show instead of the roster's. */
   names: Readonly<Record<string, string>>
+  /** Optional for compatibility with installations predating the model picker. */
+  contextWindows?: Readonly<Record<string, ContextWindow>>
 }
 
 /** Where the overrides file lives inside one installation's state directory. */
@@ -53,11 +60,12 @@ function overridesPath(stateDir: string): string {
  */
 function isOverridesFile(parsed: unknown): parsed is ModelOverridesFile {
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return false
-  const { disabled, names } = parsed as { disabled?: unknown, names?: unknown }
+  const { disabled, names, contextWindows } = parsed as { disabled?: unknown, names?: unknown, contextWindows?: unknown }
   if (!Array.isArray(disabled) || disabled.some(id => typeof id !== 'string')) return false
-  if (names === undefined) return true
-  if (typeof names !== 'object' || names === null || Array.isArray(names)) return false
-  return Object.values(names).every(name => typeof name === 'string' && name.trim().length > 0)
+  if (names !== undefined && (typeof names !== 'object' || names === null || Array.isArray(names)
+    || !Object.values(names).every(name => typeof name === 'string' && name.trim().length > 0))) return false
+  return contextWindows === undefined || (typeof contextWindows === 'object' && contextWindows !== null
+    && !Array.isArray(contextWindows) && Object.values(contextWindows).every(isContextWindow))
 }
 
 /**
@@ -90,7 +98,10 @@ export async function readModelOverrides(stateDir: string): Promise<ModelOverrid
   if (!isOverridesFile(parsed)) {
     throw new Error(`chatgpt: ${OVERRIDES_FILENAME} is malformed; delete it to reset model switches and names`)
   }
-  return { disabled: parsed.disabled, names: parsed.names ?? {} }
+  return {
+    disabled: parsed.disabled, names: parsed.names ?? {},
+    ...parsed.contextWindows === undefined ? {} : { contextWindows: parsed.contextWindows },
+  }
 }
 
 /**
@@ -104,7 +115,10 @@ export async function writeModelOverrides(stateDir: string, overrides: ModelOver
   const path = overridesPath(stateDir)
   await withCredentialFileLock(path, async () => {
     const temp = `${path}.tmp-${process.pid.toString()}`
-    const body = { disabled: [...overrides.disabled], names: { ...overrides.names } }
+    const body = {
+      disabled: [...overrides.disabled], names: { ...overrides.names },
+      ...overrides.contextWindows === undefined ? {} : { contextWindows: { ...overrides.contextWindows } },
+    }
     await writeFile(temp, `${JSON.stringify(body, undefined, 2)}\n`, { mode: 0o600 })
     await rename(temp, path)
   })
