@@ -131,22 +131,22 @@ for (const switchAccount of [false, true]) it(`rejects a late catalog after ${sw
     globalThis.fetch = async () => {
       calls++
       if (calls === 1) { entered(); await gate }
-      return Response.json({ models: [{ slug: 'gpt-6-sol', display_name: calls === 1 ? 'Account A' : 'Account B', context_window: calls === 1 ? 872000 : 272000 }] })
+      return Response.json({ models: [{ slug: 'gpt-6-sol', display_name: calls === 1 ? 'Account A' : 'Account B', description: calls === 1 ? 'Account A metadata' : 'Account B metadata', context_window: calls === 1 ? 872000 : 272000 }] })
     }
     const old = adapter.listModels()
     await started
     // Subsequent requests now belong to B; the suspended A response stays A.
-    globalThis.fetch = async () => Response.json({ models: [{ slug: 'gpt-6-sol', display_name: 'Account B', context_window: 272000 }] })
+    globalThis.fetch = async () => Response.json({ models: [{ slug: 'gpt-6-sol', display_name: 'Account B', description: 'Account B metadata', context_window: 272000 }] })
     if (switchAccount) {
       auth.adopt({ ...grant, subject: 'two' })
       // Also prove account identity guards cache reads without explicit invalidation.
       const b = await adapter.listModels()
-      assert.equal(b[0]?.name, 'Account B')
+      assert.equal(b[0]?.description, 'Account B metadata')
     } else { auth.signOut(); adapter.forgetListing(); assert.deepEqual(await adapter.listModels(), []) }
     release()
     assert.deepEqual(await old, [])
     const latest = await adapter.listModels()
-    if (switchAccount) assert.equal(latest[0]?.name, 'Account B')
+    if (switchAccount) assert.equal(latest[0]?.description, 'Account B metadata')
     else assert.deepEqual(latest, [])
   } finally { release?.(); globalThis.fetch = original; await rm(dir, { recursive: true, force: true }) }
 })

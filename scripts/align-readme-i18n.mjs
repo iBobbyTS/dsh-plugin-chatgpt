@@ -83,6 +83,8 @@ const LINE_TRANSLATIONS = {
     "## 你会得到什么",
   "One provider route, listed in **Settings → Models** like any built-in provider, with the model roster, context windows, and reasoning levels the account is entitled to. Selecting a model there is what puts it in the model selector; no separate picker is involved.":
     "一个 provider 路由，像内置 provider 一样出现在 **设置 → 模型** 里，带有该账号有权使用的模型清单、上下文窗口和推理级别。在那里选中某个模型，就是把它放进模型选择器的方式，不涉及任何单独的挑选界面。",
+  "Default model names and placeholders first match the full slug pattern `gpt-{number}-{letters}` (including decimal versions): `gpt-5.6-sol` becomes `GPT 5.6 Sol`, and `gpt-6-astra` becomes `GPT 6 Astra`. Other slugs keep their account or catalog names. Saved display-name overrides still take precedence.":
+    "默认模型名和 placeholder 优先匹配完整 slug 格式 `gpt-{数字}-{字母}`（支持小数版本号）：`gpt-5.6-sol` 显示为 `GPT 5.6 Sol`，`gpt-6-astra` 显示为 `GPT 6 Astra`。其他 slug 继续使用账号或目录中的名称；手动保存的显示名仍优先。",
   "Set each model’s context window in **Settings → Models → ChatGPT → Models**. Each row offers four choices: **1M**, **800k**, **500k**, and **300k** (decimal tokens). Changes are saved on this installation and take effect the next time DSH resolves that model.":
     "在**设置 → 模型 → ChatGPT → Models** 中配置每个模型的上下文窗口。每行提供四个选项：**1M**、**800k**、**500k** 和 **300k**（十进制 token 数）。修改保存在本机，在 DSH 下次解析该模型时生效。",
   "Without an explicit config budget, defaults match the stable model ID, ignoring case: IDs containing `astra` or `sol` use **1M**, `terra` uses **500k**, and `luna` uses **300k**. All other IDs use **1M**. Editing a display name does not change this rule. **Restore defaults** clears saved model-page choices, switches, and names; context then follows config or the model-ID default.":

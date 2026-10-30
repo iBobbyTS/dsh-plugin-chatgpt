@@ -210,7 +210,7 @@ describe('model display names on the adapter', () => {
 
     const offered = await adapter.listModels()
     assert.deepEqual(offered.map(model => [model.id, model.name] as const), [
-      ['gpt-6-astra', 'GPT-6 Astra'],
+      ['gpt-6-astra', 'GPT 6 Astra'],
       ['gpt-6.1-terra', 'Terra 9'],
     ])
     // The name is display vocabulary: a direct call resolves the same model.
@@ -226,7 +226,7 @@ describe('model display names on the adapter', () => {
     const rows = await adapter.modelSwitches()
     assert.deepEqual(
       rows.map(row => [row.id, row.defaultName, row.name] as const),
-      [['gpt-6-astra', 'GPT-6 Astra', 'GPT-6 Astra'], ['gpt-6.1-terra', 'GPT-6.1 Terra', 'Terra 9']],
+      [['gpt-6-astra', 'GPT 6 Astra', 'GPT 6 Astra'], ['gpt-6.1-terra', 'GPT 6.1 Terra', 'Terra 9']],
     )
   })
 
@@ -238,7 +238,7 @@ describe('model display names on the adapter', () => {
     await adapter.setModelName('gpt-6.1-terra', undefined)
 
     const rows = await adapter.modelSwitches()
-    assert.equal(rows.find(row => row.id === 'gpt-6.1-terra')?.name, 'GPT-6.1 Terra')
+    assert.equal(rows.find(row => row.id === 'gpt-6.1-terra')?.name, 'GPT 6.1 Terra')
     const stored = JSON.parse(await readFile(join(stateDir, 'models.json'), 'utf8')) as { names: Record<string, string> }
     assert.deepEqual(stored.names, {})
   })
@@ -250,7 +250,7 @@ describe('model display names on the adapter', () => {
     await adapter.setModelName('gpt-6.1-terra', '   ')
 
     const rows = await adapter.modelSwitches()
-    assert.equal(rows.find(row => row.id === 'gpt-6.1-terra')?.name, 'GPT-6.1 Terra')
+    assert.equal(rows.find(row => row.id === 'gpt-6.1-terra')?.name, 'GPT 6.1 Terra')
   })
 
   it('refuses a name the same way it refuses a switch on an unknown model', async () => {
@@ -287,8 +287,8 @@ describe('model display names on the adapter', () => {
     const rows = await second.resetModels()
 
     assert.deepEqual(rows.map(row => [row.id, row.name, row.disabled] as const), [
-      ['gpt-6-astra', 'GPT-6 Astra', false],
-      ['gpt-6.1-terra', 'GPT-6.1 Terra', false],
+      ['gpt-6-astra', 'GPT 6 Astra', false],
+      ['gpt-6.1-terra', 'GPT 6.1 Terra', false],
     ])
     assert.deepEqual(announced, ['changed'])
     assert.deepEqual(await readModelOverrides(stateDir), { disabled: [], names: {} })
@@ -421,4 +421,22 @@ describe('configured context values on the model page', () => {
     assert.equal(fixed.length, 4)
     assert.ok(fixed.every(option => !option.disabled))
   })
+})
+
+
+it('uses the formatted slug as the placeholder default without rewriting a saved display name', async () => {
+  const stateDir = await signedIn()
+  const url = await endpoint()
+  const adapter = adapterFor(stateDir, url)
+  let row = (await adapter.modelSwitches()).find(row => row.id === 'gpt-6-astra')
+  assert.equal(row?.defaultName, 'GPT 6 Astra')
+  assert.equal(row?.name, 'GPT 6 Astra')
+  await adapter.setModelName('gpt-6-astra', 'My Astra')
+  const restored = adapterFor(stateDir, url)
+  row = (await restored.modelSwitches()).find(row => row.id === 'gpt-6-astra')
+  assert.equal(row?.defaultName, 'GPT 6 Astra')
+  assert.equal(row?.name, 'My Astra')
+  assert.equal((await restored.listModels()).find(row => row.id === 'gpt-6-astra')?.name, 'My Astra')
+  await restored.setModelName('gpt-6-astra', undefined)
+  assert.equal((await restored.modelSwitches()).find(row => row.id === 'gpt-6-astra')?.name, 'GPT 6 Astra')
 })

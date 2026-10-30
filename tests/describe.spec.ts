@@ -4,10 +4,10 @@ import { describableModels, describeModel } from '../src/models/describe.ts'
 
 describe('describeModel', () => {
   it('fills capacities and reasoning levels from the catalog', () => {
-    const model = describeModel({ slug: 'gpt-6.1-sol', displayName: 'GPT-6.1 Sol' })
+    const model = describeModel({ slug: 'gpt-6.1-sol', displayName: 'GPT 6.1 Sol' })
 
     assert.equal(model.id, 'gpt-6.1-sol')
-    assert.equal(model.name, 'GPT-6.1 Sol')
+    assert.equal(model.name, 'GPT 6.1 Sol')
     assert.equal(model.metadataSource, 'catalog')
     assert.ok(model.contextWindow >= 200000)
     assert.ok((model.maxTokens ?? 0) > 0)
@@ -35,20 +35,43 @@ describe('describeModel', () => {
 
     // Still callable, still selectable — just honestly labelled as undescribed.
     assert.equal(model.id, 'gpt-9-unknown')
-    assert.equal(model.name, 'gpt-9-unknown')
+    assert.equal(model.name, 'GPT 9 Unknown')
     assert.equal(model.metadataSource, 'fallback')
     assert.ok(model.contextWindow > 0)
     assert.equal(model.reasoningEfforts, undefined)
   })
 
-  it('prefers the account\'s display name over the catalog name', () => {
-    assert.equal(describeModel({ slug: 'gpt-6.1-sol', displayName: 'Sol (work)' }).name, 'Sol (work)')
+  it('prefers the slug format over the account display name', () => {
+    assert.equal(describeModel({ slug: 'gpt-6.1-sol', displayName: 'Sol (work)' }).name, 'GPT 6.1 Sol')
   })
 
-  it('falls back to the catalog name when the listing names nothing', () => {
+  it('formats the slug even when the listing supplies no name', () => {
     const model = describeModel({ slug: 'gpt-6.1-sol' })
 
-    assert.equal(model.name, 'GPT-6.1 Sol')
+    assert.equal(model.name, 'GPT 6.1 Sol')
+  })
+
+  it('formats complete GPT version and alphabetic suffix slugs before other name sources', () => {
+    for (const [slug, expected] of [
+      ['gpt-5.6-sol', 'GPT 5.6 Sol'],
+      ['gpt-6-astra', 'GPT 6 Astra'],
+      ['gpt-6.1-terra', 'GPT 6.1 Terra'],
+      ['gpt-6-luna', 'GPT 6 Luna'],
+      ['gpt-12.34-future', 'GPT 12.34 Future'],
+    ]) {
+      assert.ok(slug && expected)
+      assert.equal(describeModel({ slug, displayName: 'Different endpoint name' }).name, expected)
+      assert.equal(describeModel({ slug }).name, expected)
+    }
+  })
+
+  it('preserves name fallback for slugs outside the exact pattern', () => {
+    for (const slug of ['gpt-6', 'gpt-6.1', 'gpt-6-sol-extra', 'prefix-gpt-6-sol',
+      'gpt-6-sol2', 'gpt-6.1.2-sol', 'gpt-6-', 'o3']) {
+      assert.equal(describeModel({ slug, displayName: 'Endpoint name' }).name, 'Endpoint name')
+    }
+    assert.equal(describeModel({ slug: 'gpt-4.1' }).name, 'GPT-4.1')
+    assert.equal(describeModel({ slug: 'future-unknown' }).name, 'future-unknown')
   })
 
   it('gives a non-reasoning model no selectable efforts', () => {
@@ -105,7 +128,7 @@ describe('describableModels', () => {
     })
 
     assert.equal(model.metadataSource, 'endpoint')
-    assert.equal(model.name, 'From the endpoint')
+    assert.equal(model.name, 'GPT 6.1 Sol')
     assert.equal(model.contextWindow, 400000)
     assert.equal(model.maxContextWindow, 900000)
     assert.equal(model.description, 'Frontier model.')

@@ -169,7 +169,7 @@ describe('ChatGptAdapter', () => {
     )
     const resolved = await adapter.resolveModel('chatgpt', 'gpt-6.1-sol')
     assert.equal(resolved.provider, 'chatgpt')
-    assert.equal(resolved.name, 'GPT-6.1 Sol')
+    assert.equal(resolved.name, 'GPT 6.1 Sol')
     assert.ok(resolved.context.contextWindow >= 200000)
     assert.ok((resolved.defaultMaxTokens ?? 0) > 0)
     assert.deepEqual(resolved.inputModalities, ['text', 'image'])

@@ -90,6 +90,8 @@ The grant is stored owner-only under `stateDir`. `attempt.submit()` rejects a ma
 
 One provider route, listed in **Settings → Models** like any built-in provider, with the model roster, context windows, and reasoning levels the account is entitled to. Selecting a model there is what puts it in the model selector; no separate picker is involved.
 
+Default model names and placeholders first match the full slug pattern `gpt-{number}-{letters}` (including decimal versions): `gpt-5.6-sol` becomes `GPT 5.6 Sol`, and `gpt-6-astra` becomes `GPT 6 Astra`. Other slugs keep their account or catalog names. Saved display-name overrides still take precedence.
+
 Set each model’s context window in **Settings → Models → ChatGPT → Models**. Each row offers four choices: **1M**, **800k**, **500k**, and **300k** (decimal tokens). Changes are saved on this installation and take effect the next time DSH resolves that model.
 
 Without an explicit config budget, defaults match the stable model ID, ignoring case: IDs containing `astra` or `sol` use **1M**, `terra` uses **500k**, and `luna` uses **300k**. All other IDs use **1M**. Editing a display name does not change this rule. **Restore defaults** clears saved model-page choices, switches, and names; context then follows config or the model-ID default.

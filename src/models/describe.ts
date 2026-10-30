@@ -226,6 +226,13 @@ function inputOf(listed: ListedModel, entry: CatalogEntry | undefined): ('text' 
  */
 export function describeModel(listed: ListedModel): DescribedModel {
   const entry = CATALOG[listed.slug]
+  // A recognizable slug supplies a consistent default name and placeholder;
+  // editable display-name overrides are applied later by the adapter.
+  const match = /^gpt-(\d+(?:\.\d+)?)-([a-zA-Z]+)$/.exec(listed.slug)
+  const suffix = match?.[2]
+  const name = suffix === undefined
+    ? listed.displayName ?? entry?.name ?? listed.slug
+    : `GPT ${match?.[1]} ${suffix.charAt(0).toUpperCase()}${suffix.slice(1)}`
   // Whether the listing itself described this model, rather than only naming it.
   const describedByEndpoint = listed.contextWindow !== undefined
     || (listed.reasoningLevels !== undefined && listed.reasoningLevels.length > 0)
@@ -236,7 +243,7 @@ export function describeModel(listed: ListedModel): DescribedModel {
   const maxTokens = entry?.maxTokens
   return {
     id: listed.slug,
-    name: listed.displayName ?? entry?.name ?? listed.slug,
+    name,
     contextWindow,
     ...listed.maxContextWindow === undefined ? {} : { maxContextWindow: listed.maxContextWindow },
     ...maxTokens === undefined ? {} : { maxTokens },
