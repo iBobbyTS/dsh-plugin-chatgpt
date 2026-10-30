@@ -147,8 +147,7 @@ function usageOf(response: Record<string, unknown> | undefined): ResponsesUsage 
   const output = num(usage['output_tokens'])
   const total = num(usage['total_tokens'])
   if (input === undefined && output === undefined && total === undefined) return undefined
-  // OpenRouter-style detail objects, which the Responses API nests rather than
-  // flattening into the totals.
+  // Responses API detail objects are nested under the input/output totals.
   const details = record(usage['input_tokens_details'])
   const cached = num(details?.['cached_tokens'])
   const written = num(details?.['cache_write_tokens'])
@@ -156,8 +155,10 @@ function usageOf(response: Record<string, unknown> | undefined): ResponsesUsage 
   // Both cache counts are folded into the input total, so they come out of it:
   // the harness bills input + cache reads + cache writes, and leaving them in
   // would count the same tokens twice.
-  const cacheRead = cached === undefined || cached <= 0 ? undefined : cached
-  const cacheWrite = written === undefined || written <= 0 ? undefined : written
+  // Preserve an explicit zero: the harness treats a missing bucket as unknown
+  // and hides its whole-turn aggregate if even one call omits it.
+  const cacheRead = cached === undefined || cached < 0 ? undefined : cached
+  const cacheWrite = written === undefined || written < 0 ? undefined : written
   const uncachedInput = input === undefined
     ? undefined
     : Math.max(0, input - (cacheRead ?? 0) - (cacheWrite ?? 0))

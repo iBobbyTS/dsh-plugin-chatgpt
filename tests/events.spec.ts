@@ -136,6 +136,50 @@ describe('decodeEvent', () => {
     })
   })
 
+  it('preserves zero cache counts on completed, incomplete and failed responses', () => {
+    for (const type of ['response.completed', 'response.incomplete', 'response.failed']) {
+      const event = decodeEvent(JSON.stringify({
+        type,
+        response: {
+          usage: {
+            input_tokens: 1000,
+            output_tokens: 50,
+            total_tokens: 1050,
+            input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+          },
+        },
+      }))
+      assert.ok(event && 'usage' in event)
+      assert.deepEqual(event.usage, {
+        inputTokens: 1000, outputTokens: 50, totalTokens: 1050,
+        cacheReadTokens: 0, cacheWriteTokens: 0,
+      }, type)
+    }
+  })
+
+  it('keeps known zero cache counts separate from missing or invalid counts', () => {
+    for (const unknown of [undefined, null, -1, '0']) {
+      for (const known of ['cached_tokens', 'cache_write_tokens']) {
+        const event = decodeEvent(JSON.stringify({
+          type: 'response.completed',
+          response: {
+            usage: {
+              input_tokens: 10, output_tokens: 2, total_tokens: 12,
+              input_tokens_details: {
+                cached_tokens: unknown, cache_write_tokens: unknown, [known]: 0,
+              },
+            },
+          },
+        }))
+        assert.ok(event?.kind === 'completed')
+        assert.deepEqual(event.usage, {
+          inputTokens: 10, outputTokens: 2, totalTokens: 12,
+          [known === 'cached_tokens' ? 'cacheReadTokens' : 'cacheWriteTokens']: 0,
+        })
+      }
+    }
+  })
+
   it('reports a plain usage object unchanged', () => {
     const completed = decodeEvent(JSON.stringify({
       type: 'response.completed',
