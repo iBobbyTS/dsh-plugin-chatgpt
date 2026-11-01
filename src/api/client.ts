@@ -160,6 +160,8 @@ export async function listModels(
 
 /** Options for one streaming turn. */
 export interface StreamTurnOptions {
+  /** Adapter-prepared body paired with its durable configuration snapshot. */
+  preparedBody?: ResponsesBody
   accessToken: string
   request: NeutralRequest
   endpoints?: ClientEndpoints
@@ -197,7 +199,7 @@ export async function readWithIdleTimeout(
  * @returns the decoded events, in order, ending with a terminal one.
  */
 export async function* streamTurn(options: StreamTurnOptions): AsyncGenerator<ResponsesEvent, void, undefined> {
-  const body: ResponsesBody = toResponsesBody(options.request)
+  const body: ResponsesBody = options.preparedBody ?? toResponsesBody(options.request)
   const idleTimeoutMs = options.idleTimeoutMs ?? 300_000
   if (!Number.isSafeInteger(idleTimeoutMs) || idleTimeoutMs <= 0) {
     throw new Error('invalid stream idle timeout')

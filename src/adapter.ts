@@ -26,7 +26,8 @@
 
 import { ApiError, listModels, streamTurn } from './api/client.ts'
 import { BlockTranslator, type AdapterChunk } from './convert/blocks.ts'
-import type { InputPart, NeutralMessage, NeutralRequest } from './convert/request.ts'
+import { prepareResponsesRequest, type InputPart, type NeutralMessage, type NeutralRequest } from './convert/request.ts'
+import { readReasoningReplay } from './convert/reasoning.ts'
 import { accountScope, replayOutput, sessionCacheKey, type ReplayContext } from './convert/replay.ts'
 import type { ChatGptCredential } from './auth/credential.ts'
 import { withCredentialFileLock } from './auth/file-lock.ts'
@@ -214,6 +215,8 @@ export function toNeutralRequest(request: HarnessRequest, scope?: string): Neutr
     const replay = message.role === 'assistant'
       && source?.['kind'] === 'model' && source['provider'] === request.provider && source['model'] === request.model
       ? replayOutput(source['replayState'], message.content, context) : undefined
+    const replayState = source?.['replayState'] as { response?: { reasoningReplay?: unknown, reasoningUpdatesUnsupported?: unknown } } | undefined
+    const reasoningReplay = replay === undefined ? undefined : readReasoningReplay(replayState?.response?.reasoningReplay)
     const content: InputPart[] = []
     for (const block of message.content) {
       if (block.type === 'text' && typeof block['text'] === 'string') {
@@ -232,6 +235,9 @@ export function toNeutralRequest(request: HarnessRequest, scope?: string): Neutr
       ...message.toolCallId === undefined ? {} : { toolCallId: message.toolCallId },
       ...message.isError === undefined ? {} : { isError: message.isError },
       ...replay === undefined ? {} : { replay },
+      ...reasoningReplay === undefined ? {} : { reasoningReplay },
+      ...replay !== undefined && replayState?.response?.reasoningUpdatesUnsupported === true
+        ? { reasoningUpdatesUnsupported: true as const } : {},
     }
   })
   const cacheKey = scope === undefined ? undefined
@@ -821,18 +827,39 @@ export class ChatGptAdapter {
         // that read produced is carried out, not discarded.
         async (credential) => {
           const scope = accountScope(this.baseUrl ?? RESOURCE, credential)
-          const translator = new BlockTranslator(scope === undefined ? undefined : { provider: request.provider, model: request.model, scope })
           const neutral = toNeutralRequest(request, scope)
-          const idleTimeoutMs = typeof this.streamIdleTimeoutMs === 'function'
-            ? this.streamIdleTimeoutMs() : this.streamIdleTimeoutMs
-          const started = streamTurn({
-            accessToken: credential.accessToken,
-            request: neutral,
-            ...idleTimeoutMs === undefined ? {} : { idleTimeoutMs },
-            ...this.baseUrl === undefined ? {} : { endpoints: { baseUrl: this.baseUrl } },
-            ...request.signal === undefined ? {} : { signal: request.signal },
-          })
-          return { events: started, primed: await started.next(), translator }
+          const initialPrepared = prepareResponsesRequest(neutral)
+          const start = async (unsupported?: true) => {
+            const prepared = unsupported
+              ? prepareResponsesRequest({ ...neutral, reasoningUpdatesUnsupported: true }) : initialPrepared
+            const translator = new BlockTranslator(scope === undefined ? undefined : {
+              provider: request.provider, model: request.model, scope,
+              ...prepared.reasoningReplay === undefined ? {} : { reasoningReplay: prepared.reasoningReplay },
+              ...prepared.reasoningUpdatesUnsupported === undefined ? {} : { reasoningUpdatesUnsupported: true as const },
+            })
+            const idleTimeoutMs = typeof this.streamIdleTimeoutMs === 'function'
+              ? this.streamIdleTimeoutMs() : this.streamIdleTimeoutMs
+            const started = streamTurn({
+              accessToken: credential.accessToken,
+              request: neutral,
+              preparedBody: prepared.body,
+              ...idleTimeoutMs === undefined ? {} : { idleTimeoutMs },
+              ...this.baseUrl === undefined ? {} : { endpoints: { baseUrl: this.baseUrl } },
+              ...request.signal === undefined ? {} : { signal: request.signal },
+            })
+            return { events: started, primed: await started.next(), translator }
+          }
+          try {
+            return await start()
+          } catch (error) {
+            // SIWC may reject configuration items that the public API accepts.
+            // Retry only a pre-stream capability refusal, then remember it in
+            // successful response metadata rather than failing every switch.
+            if (!(error instanceof ApiError) || error.code !== 'subscription_sharing_unsupported_capability'
+              || !/unsupported input items/i.test(error.message)
+              || !initialPrepared.body.input.some(item => item.type === 'configuration_update')) throw error
+            return await start(true)
+          }
         },
       ))
     } catch (error) {

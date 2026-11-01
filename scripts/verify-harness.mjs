@@ -28,7 +28,7 @@ try {
     import { requestOf } from ${JSON.stringify(join(plugin, 'src/convert/harness.ts'))};
     import { resolveRetryPolicy } from '@deepseek-ai/dsh-llm';
     import { ChatGptAdapter, toNeutralRequest } from ${JSON.stringify(join(plugin, 'src/adapter.ts'))};
-    import { toResponsesBody } from ${JSON.stringify(join(plugin, 'src/convert/request.ts'))};
+    import { toResponsesBody, prepareResponsesRequest } from ${JSON.stringify(join(plugin, 'src/convert/request.ts'))};
     import { streamCases } from ${JSON.stringify(join(plugin, 'tests/fixtures/stream-cases.ts'))};
     const policy = resolveRetryPolicy(undefined);
     assert.equal(policy.mode, 'normal');
@@ -64,6 +64,26 @@ try {
     const body = toResponsesBody(toNeutralRequest(requestOf(options), context.scope));
     assert.deepEqual(body.input, output);
     assert.equal(assembled.blocks()[0].text, '');
+    // Configuration history survives the real host's assembly and JSON persistence.
+    let history = [{ role: 'user', content: [{ type: 'text', text: 'first' }] }];
+    let previousBody;
+    for (const effort of ['xhigh', 'medium', 'medium', 'xhigh']) {
+      const neutral = toNeutralRequest(requestOf({ ...options, reasoningEffort: effort, messages: history }), context.scope);
+      const prepared = prepareResponsesRequest(neutral);
+      if (previousBody) assert.deepEqual(prepared.body.input.slice(0, previousBody.input.length), previousBody.input);
+      assert.equal(prepared.body.reasoning.effort, 'xhigh');
+      const host = new BlockAssembler();
+      const translated = new BlockTranslator({ ...context, reasoningReplay: prepared.reasoningReplay });
+      for (const chunk of translated.push(event)) host.push(chunk);
+      const restored = JSON.parse(JSON.stringify(host.message({
+        provider: context.provider, model: context.model, replayState: host.replayState,
+      })));
+      history = [...history, restored,
+        { role: 'tool', toolCallId: 'call_1', content: [{ type: 'text', text: 'read result' }] },
+        { role: 'user', content: [{ type: 'text', text: 'next' }] }];
+      previousBody = prepared.body;
+    }
+    assert.deepEqual(previousBody.input.filter(item => item.type === 'configuration_update').map(item => item.reasoning.effort), ['medium', 'xhigh']);
     // DSH prunes unsafe tool calls on max-tokens. Native metadata must not
     // resurrect that call, even though the remaining block fingerprints match.
     const truncated = new BlockAssembler();

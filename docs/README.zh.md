@@ -167,6 +167,8 @@ auth.adopt(credential)
 
 适配器在多轮工具调用和会话恢复中保留可复用前缀及不透明推理状态。本地授权命名空间、client 注册、端点、provider、会话 ID 和调用用途的固定长度哈希同时用于 `prompt_cache_key` 与 `session_id` 请求头；刷新 token 不改变它。重新授权会生成新命名空间，旧凭据在首次读取时补齐；无会话 ID 的调用则省略两者。GPT-5.6 及以后由 OpenAI 自动处理缓存路由，key 不保证命中。SIWC 要求 `store: false` 并在 HTTP 请求中携带完整历史，响应存储与提示词缓存是两件事。与 Pi 的公共 SIWC 路线一样，这里继续省略缓存保留期与 options，等待按模型和路由验证。参见[官方缓存指南](https://developers.openai.com/api/docs/guides/prompt-caching)及[推理回放说明](https://developers.openai.com/api/docs/guides/reasoning#preserve-reasoning-without-stored-responses)。
 
+GPT-6 系列模型在 standard 模式下，适配器会尝试通过原生 `configuration_update` 切换推理深度，保留首次请求的顶层设置。切换记录支持恢复会话和 fork；历史前缀被编辑或压缩后重新建立基线。如果订阅路由明确拒绝此类输入项，适配器会使用请求级深度重试一次，并在会话中记住该限制。2026-10-31 的线上检查中，当前 SIWC 路由拒绝了配置更新，因此该路由切换深度仍可能丢失缓存复用。其他模型继续使用请求级切换。参见[路由验证与回放细节](cache-replay.md#reasoning-effort-changes)。
+
 ## 已知限制与待办
 
 - **已有历史仍可使用** — 旧会话缺失的加密回放数据无法恢复，但可见消息和工具记录会按顺序回放。对于被编辑、裁剪、来自其他适配器、格式错误或不兼容的元数据，会退回可见历史，避免重新引入已丢弃内容。此集成要求 DSH 宿主支持 `finish.replayState` 和 `systemPromptUpdate: "in-history"`；参见[回放设计与验证方案](cache-replay.md)。

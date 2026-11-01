@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Preserve reasoning-effort changes as native `configuration_update` history on supported standard GPT-6 routes, with durable update positions and input-prefix validation through DSH replay metadata. Session restore and forks retain the initial request-level effort.
+
+The current ChatGPT subscription route rejected these items in a live check. An explicit unsupported-input capability refusal now falls back once to request-level effort and persists that limitation for subsequent calls. This keeps switching usable but does not fix cache loss on routes that refuse configuration updates.
+
 ## 0.1.17
 
 A listing that recovers from a failure refreshes the model selector.

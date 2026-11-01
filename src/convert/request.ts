@@ -4,6 +4,7 @@
  */
 import { DIRECT_TOKEN_SCOPE } from '../auth/protocol.ts'
 import type { OutputItem } from './replay.ts'
+import { prepareReasoning, supportsReasoningUpdates, type ReasoningReplay } from './reasoning.ts'
 
 export const STORE = false
 export const STREAM = true
@@ -28,6 +29,8 @@ export interface NeutralMessage {
   isError?: boolean
   /** Validated native items from this assistant message's durable state. */
   replay?: readonly OutputItem[]
+  reasoningReplay?: ReasoningReplay
+  reasoningUpdatesUnsupported?: true
 }
 
 export interface NeutralTool {
@@ -37,6 +40,8 @@ export interface NeutralTool {
 }
 
 export interface NeutralRequest {
+  /** Explicit subscription-route refusal, retained with the next successful response. */
+  reasoningUpdatesUnsupported?: true
   model: string
   messages: readonly NeutralMessage[]
   /** Used when history has no leading system/developer instruction. */
@@ -65,17 +70,33 @@ function textOf(content: NeutralMessage['content']): string {
 
 /** Preserve message and assistant-block order; instruction roles stay in place. */
 export function toResponsesBody(request: NeutralRequest): ResponsesBody {
+  return prepareResponsesRequest(request).body
+}
+
+/** Build the wire request and the configuration snapshot saved with its response. */
+export function prepareResponsesRequest(request: NeutralRequest): {
+  body: ResponsesBody, reasoningReplay?: ReasoningReplay, reasoningUpdatesUnsupported?: true
+} {
   const input: InputItem[] = []
+  let previous: { state: ReasoningReplay, assistantOffset: number } | undefined
+  let assistantEnd = 0
+  let unsupported = false
   const leadingRole = request.messages[0]?.role
   if (request.system && leadingRole !== 'system') {
     input.push({ type: 'message', role: 'developer', content: [{ type: 'input_text', text: request.system }] })
   }
   for (const message of request.messages) {
+    if (message.role === 'assistant') {
+      unsupported = message.reasoningUpdatesUnsupported === true
+      previous = message.reasoningReplay === undefined ? undefined
+        : { state: message.reasoningReplay, assistantOffset: input.length }
+    }
     if (message.role === 'assistant' && message.replay !== undefined) {
       // Stream fragments may omit summary; the Responses input shape requires
       // the array even when reasoning is carried solely by encrypted_content.
       input.push(...structuredClone(message.replay).map(item => item.type === 'reasoning' && item['summary'] === undefined
         ? { ...item, summary: [] } : item))
+      assistantEnd = input.length
       continue
     }
     if (message.role === 'tool') {
@@ -107,17 +128,23 @@ export function toResponsesBody(request: NeutralRequest): ResponsesBody {
       }
     }
     flush()
+    if (message.role === 'assistant') assistantEnd = input.length
   }
-  return {
-    model: request.model, input, stream: STREAM, store: STORE,
+  unsupported ||= request.reasoningUpdatesUnsupported === true
+  const prepared = !unsupported && supportsReasoningUpdates(request.model)
+    ? prepareReasoning(input, request.reasoningEffort, previous, assistantEnd) : undefined
+  const effort = prepared === undefined ? request.reasoningEffort : prepared.effort
+  return { body: {
+    model: request.model, input: prepared?.input ?? input, stream: STREAM, store: STORE,
     ...request.cacheKey === undefined ? {} : { prompt_cache_key: request.cacheKey },
     ...request.tools?.length ? {
       tools: request.tools.map(tool => ({ type: 'function' as const, name: tool.name, description: tool.description, parameters: tool.parameters })),
     } : {},
-    ...request.reasoningEffort === undefined ? {} : {
-      reasoning: { effort: request.reasoningEffort, summary: 'concise' }, include: ['reasoning.encrypted_content'],
+    ...effort === undefined ? {} : {
+      reasoning: { effort, summary: 'concise' }, include: ['reasoning.encrypted_content'],
     },
-  }
+  }, ...prepared === undefined ? {} : { reasoningReplay: prepared.state },
+  ...unsupported ? { reasoningUpdatesUnsupported: true } : {} }
 }
 
 export { DIRECT_TOKEN_SCOPE }

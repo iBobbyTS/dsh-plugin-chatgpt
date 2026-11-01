@@ -87,7 +87,7 @@ format migration is required. Old sessions remain readable but cannot recover
 encrypted reasoning that an earlier adapter discarded.
 
 Corrected roles/order and the new cache identity change the initial wire prefix.
-Expect a cold request after upgrading. Model/effort switches, context compaction,
+Expect a cold request after upgrading. Model switches, effort switches on routes rejecting configuration updates, context compaction,
 tool changes, account changes, and normal cache expiry can still reduce reuse.
 The context budget does not impose a spending cap; SIWC rejects
 `max_output_tokens`. DSH computes its own compaction threshold and output
@@ -136,6 +136,14 @@ Tests cover different defaults in one account, catalog updates, explicit one-mil
 budgets above catalog maxima, missing metadata, smaller budgets, invalid values,
 clearing overrides after catalog changes, per-model/global/default precedence,
 exact-ID matching, and independent budgets for models missing from the catalog.
+
+## Reasoning effort changes
+
+Standard GPT-6 family requests keep the initial top-level effort (including omission) fixed. A later selection is represented by a `configuration_update` before the next user message, or after the tool results when continuing without a new user message. Switching back adds another update; prior updates remain in their original positions. The selected effort is saved locally rather than inferred from the response’s request-level reasoning field. See [OpenAI’s configuration update guidance](https://developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation).
+
+The response replay metadata carries the initial and effective efforts, update positions, and a hash/count of the serialized request input. The next request reuses these only when the latest assistant’s native replay is valid and its preceding input matches that snapshot. JSON restore and forks preserve the updates; altered, pruned, compacted, foreign-account or foreign-model histories establish a new baseline using the current selection. Metadata stores no duplicate prompt text. Old replay envelopes remain readable but cannot recover historical effort selections; their first upgraded response establishes a baseline. Unsupported model IDs keep the previous request-level behavior. No DSH core or session-format change is required.
+
+The subscription endpoint can expose fewer capabilities than the general Responses API. On 2026-10-31, a live synthetic GPT-6.1 Sol test accepted the initial low-effort request but rejected a medium-effort `configuration_update` with `subscription_sharing_unsupported_capability` and a message to remove unsupported input items. This is a route limitation, not proof of a malformed update. The adapter retries that explicit refusal once before any stream event is exposed, removes configuration updates, and sends the current top-level effort. A successful fallback records the refusal with native replay metadata, so later calls and restores of that history do not repeat the probe. Other errors propagate unchanged; no fallback starts after streaming begins. A new session can probe again if the route gains support. The fallback preserves native output replay but cannot preserve caching across effort changes.
 
 ## Verification
 

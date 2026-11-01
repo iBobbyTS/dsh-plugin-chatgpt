@@ -31,6 +31,8 @@ const chinesePath = join(here, '..', 'docs', 'README.zh.md')
 
 /** Chinese text for each English line that carries prose, keyed exactly. */
 const LINE_TRANSLATIONS = {
+  "On standard GPT-6 family models, the adapter attempts reasoning-effort changes using native `configuration_update` items while preserving the initial request-level setting. Updates survive session restore and forks; edited or compacted prefixes establish a new baseline. If the subscription route explicitly refuses those input items, the adapter retries once using request-level effort and remembers that limitation in the session. The current SIWC route rejected configuration updates in a live check on 2026-10-31, so effort changes on that route still may lose cache reuse. Other models keep request-level changes. See [route validation and replay details](docs/cache-replay.md#reasoning-effort-changes).":
+    "GPT-6 系列模型在 standard 模式下，适配器会尝试通过原生 `configuration_update` 切换推理深度，保留首次请求的顶层设置。切换记录支持恢复会话和 fork；历史前缀被编辑或压缩后重新建立基线。如果订阅路由明确拒绝此类输入项，适配器会使用请求级深度重试一次，并在会话中记住该限制。2026-10-31 的线上检查中，当前 SIWC 路由拒绝了配置更新，因此该路由切换深度仍可能丢失缓存复用。其他模型继续使用请求级切换。参见[路由验证与回放细节](cache-replay.md#reasoning-effort-changes)。",
   "English | [中文](docs/README.zh.md)":
     "[English](../README.md) | 中文",
   "Adds one DeepSeek Harness provider route, `chatgpt`, that answers model calls from a signed-in ChatGPT subscription rather than an API key. Signing in uses OpenAI's published *Sign in with ChatGPT* flow, so the account's own plan pays for inference. The route is named `chatgpt` and not `openai` because the built-in pi-ai plugin already owns that name. Models, their context windows, and their reasoning levels come from your account's own listing, so the roster follows your plan rather than a hard-coded list.":

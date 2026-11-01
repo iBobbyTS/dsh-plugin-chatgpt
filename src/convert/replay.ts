@@ -5,6 +5,7 @@
  */
 import { createHash } from 'node:crypto'
 import { isReplayNamespace, type ChatGptCredential } from '../auth/credential.ts'
+import type { ReasoningReplay } from './reasoning.ts'
 
 export type OutputItem = Record<string, unknown> & { type: 'message' | 'reasoning' | 'function_call' }
 export type ReplayBlock =
@@ -16,6 +17,8 @@ export interface ReplayContext {
   model: string
   /** Hash of endpoint, client registration and local authorization namespace. */
   scope: string
+  reasoningReplay?: ReasoningReplay
+  reasoningUpdatesUnsupported?: true
 }
 
 export interface ReplayEnvelope {
@@ -27,6 +30,8 @@ export interface ReplayEnvelope {
     scope: string
     blockCount: number
     output: OutputItem[]
+    reasoningReplay?: ReasoningReplay
+    reasoningUpdatesUnsupported?: true
   }
   blocks: { fingerprint: string }[]
 }
