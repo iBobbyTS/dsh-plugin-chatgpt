@@ -29,7 +29,7 @@ export interface WireIdentity {
 /** One decoded stream event worth surfacing. */
 export type ResponsesEvent =
   | ({ kind: 'text', delta: string } & WireIdentity)
-  | ({ kind: 'reasoning', delta: string } & WireIdentity)
+  | ({ kind: 'reasoning', delta: string, summaryIndex?: number } & WireIdentity)
   | ({ kind: 'itemStart' | 'itemEnd', item: OutputItem } & WireIdentity)
   | ({ kind: 'toolCallStart', callId: string, name: string } & WireIdentity)
   | ({ kind: 'toolCallDelta', delta: string } & WireIdentity)
@@ -227,7 +227,10 @@ export function decodeEvent(payload: string): ResponsesEvent | undefined {
     case 'response.reasoning_summary_text.delta':
     case 'response.reasoning_text.delta': {
       const delta = str(event['delta']) ?? ''
-      return delta.length === 0 ? undefined : { kind: 'reasoning', delta, ...identityOf(event) }
+      return delta.length === 0 ? undefined : { kind: 'reasoning', delta, ...identityOf(event),
+        ...typeof event['summary_index'] === 'number' && Number.isSafeInteger(event['summary_index']) && event['summary_index'] >= 0
+          ? { summaryIndex: event['summary_index'] } : {},
+      }
     }
     case 'response.output_item.added': {
       const item = record(event['item'])

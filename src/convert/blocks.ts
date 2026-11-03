@@ -1,6 +1,6 @@
 /** Responses item indexes remain distinct across interleaved text, reasoning and tools. */
 import type { ResponsesEvent, ResponsesUsage, WireIdentity } from '../api/events.ts'
-import { createReplay, outputBlock, outputMatchesBlock, type OutputItem, type ReplayBlock, type ReplayContext, type ReplayEnvelope } from './replay.ts'
+import { createReplay, mergeReasoningBlocks, outputBlock, outputMatchesBlock, type OutputItem, type ReplayBlock, type ReplayContext, type ReplayEnvelope } from './replay.ts'
 import { normalizeFailureCode } from '../api/failure.ts'
 
 export type ToolCallBlock = Extract<ReplayBlock, { type: 'tool-call' }>
@@ -30,11 +30,13 @@ interface BlockState {
   itemId?: string
   native?: OutputItem
   pending: BlockChunk[]
+  summaryIndex?: number
 }
 
 export class BlockTranslator {
   private readonly states: BlockState[] = []
   private readonly emitted: BlockState[] = []
+  private readonly display: { states: BlockState[], started: boolean, closed: boolean, text: string }[] = []
   private readonly byIndex = new Map<number, BlockState>()
   private readonly byId = new Map<string, BlockState>()
   private readonly byCall = new Map<string, BlockState>()
@@ -106,14 +108,47 @@ export class BlockTranslator {
       if (this.states.some(state => state.wireIndex === undefined)) return []
       for (let index = 0; this.byIndex.has(index); index++) ordered.push(this.byIndex.get(index)!)
     }
-    const chunks: AdapterChunk[] = []
     for (const state of ordered) {
       if (state.localIndex === undefined) {
         state.localIndex = this.emitted.length
         this.emitted.push(state)
-        chunks.push({ type: 'block-start', index: state.localIndex, blockType: state.block.type })
+        const last = this.display.at(-1)
+        if (state.block.type === 'reasoning' && last?.states[0]?.block.type === 'reasoning') last.states.push(state)
+        else this.display.push({ states: [state], started: false, closed: false, text: '' })
       }
-      for (const chunk of state.pending.splice(0)) chunks.push({ ...chunk, index: state.localIndex })
+    }
+    const chunks: AdapterChunk[] = []
+    for (const [index, group] of this.display.entries()) {
+      if (group.closed) continue
+      const first = group.states[0]!
+      if (!group.started) {
+        group.started = true
+        chunks.push({ type: 'block-start', index, blockType: first.block.type })
+      }
+      if (first.block.type !== 'reasoning') {
+        for (const chunk of first.pending.splice(0)) chunks.push({ ...chunk, index })
+        group.closed = first.closed
+        continue
+      }
+      // Later items may arrive before the preceding item's final delta. Wait
+      // at that boundary so no text is appended to an already closed DSH block.
+      const ready: ReplayBlock[] = []
+      for (const state of group.states) {
+        ready.push(state.block)
+        state.pending.length = 0
+        if (!state.closed) break
+      }
+      const block = mergeReasoningBlocks(ready)[0] as ReasoningBlock
+      if (block.text.startsWith(group.text)) {
+        const delta = block.text.slice(group.text.length)
+        if (delta) chunks.push({ type: 'reasoning-delta', index, text: delta })
+        group.text = block.text
+      }
+      const closed = group.states.every(state => state.closed)
+      if (closed && (force || index < this.display.length - 1)) {
+        group.closed = true
+        chunks.push({ type: 'block-end', index, block })
+      } else break
     }
     return chunks
   }
@@ -158,15 +193,20 @@ export class BlockTranslator {
     if (done) this.finishItem(state, item)
   }
 
-  private append(kind: 'text' | 'reasoning', delta: string, identity: WireIdentity): void {
+  private append(kind: 'text' | 'reasoning', delta: string, identity: WireIdentity & { summaryIndex?: number }): void {
     const identified = identity.index !== undefined || identity.itemId !== undefined
     let state = identified ? this.find(identity) : this.anonymous
     if (state === undefined || !identified && (state.closed || state.block.type !== kind)) {
+      if (!identified && state !== undefined) this.close(state)
       state = this.open({ type: kind, text: '' }, identity)
     } else this.bind(state, identity)
     if (!identified) this.anonymous = state
     if (state.closed) return
     if (state.block.type !== kind) { this.replayable = false; return }
+    if (kind === 'reasoning' && identity.summaryIndex !== undefined) {
+      if (state.summaryIndex !== undefined && state.summaryIndex !== identity.summaryIndex && state.block.text.length > 0) delta = '\n\n' + delta
+      state.summaryIndex = identity.summaryIndex
+    }
     state.block.text += delta
     state.pending.push({ type: kind === 'text' ? 'text-delta' : 'reasoning-delta', index: -1, text: delta })
   }
@@ -221,7 +261,7 @@ export class BlockTranslator {
       case 'itemStart': this.item(event, event.item, false); break
       case 'itemEnd': this.item(event, event.item, true); break
       case 'toolCallStart': {
-        if (this.anonymous?.block.type === 'text') this.close(this.anonymous)
+        if (this.anonymous !== undefined) this.close(this.anonymous)
         this.anonymous = undefined
         const state = this.find(event, event.callId)
         if (state === undefined) this.open({ type: 'tool-call', id: event.callId, name: event.name, arguments: '' }, event)

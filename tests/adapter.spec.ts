@@ -561,10 +561,10 @@ describe('ChatGptAdapter', () => {
     assert.deepEqual(chunks, [
       { type: 'block-start', index: 0, blockType: 'reasoning' },
       { type: 'reasoning-delta', index: 0, text: 'thinking' },
+      { type: 'block-end', index: 0, block: { type: 'reasoning', text: 'thinking' } },
       { type: 'block-start', index: 1, blockType: 'text' },
       { type: 'text-delta', index: 1, text: 'Hel' },
       { type: 'text-delta', index: 1, text: 'lo' },
-      { type: 'block-end', index: 0, block: { type: 'reasoning', text: 'thinking' } },
       { type: 'block-end', index: 1, block: { type: 'text', text: 'Hello' } },
       { type: 'finish', reason: { kind: 'stop' } },
     ])

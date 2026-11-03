@@ -137,6 +137,24 @@ budgets above catalog maxima, missing metadata, smaller budgets, invalid values,
 clearing overrides after catalog changes, per-model/global/default precedence,
 exact-ID matching, and independent budgets for models missing from the catalog.
 
+## Continuous reasoning summaries
+
+Consecutive reasoning summaries share one DSH reasoning block. Summary text streams
+immediately; completing a native reasoning item leaves the display block open.
+The next consecutive item appends its non-empty summary on a new line. Summary
+parts within one item use a blank line, keyed by `summary_index`, rather than
+adding separators between token deltas. Text or tool output ends the reasoning
+block before its own display block starts. Completion, errors, truncation and
+transport interruption also close the display block. Interleaved later output
+waits for the preceding reasoning item to settle so late deltas remain visible.
+These are model-provided summaries, not the model's raw reasoning process.
+
+Native item IDs, order and encrypted reasoning remain separate from display
+blocks. Merged histories use replay envelope version 2 with per-item blocks;
+validation checks both native items and the merged visible fingerprints. Version 1
+histories remain readable with their original block boundaries. No DSH session
+format migration is required.
+
 ## Reasoning effort changes
 
 Standard GPT-6 family requests keep the initial top-level effort (including omission) fixed. A later selection is represented by a `configuration_update` before the next user message, or after the tool results when continuing without a new user message. Switching back adds another update; prior updates remain in their original positions. The selected effort is saved locally rather than inferred from the response’s request-level reasoning field. See [OpenAI’s configuration update guidance](https://developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation).

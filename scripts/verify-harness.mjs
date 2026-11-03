@@ -64,6 +64,32 @@ try {
     const body = toResponsesBody(toNeutralRequest(requestOf(options), context.scope));
     assert.deepEqual(body.input, output);
     assert.equal(assembled.blocks()[0].text, '');
+    // Consecutive summaries remain a single live host block and replay all native items.
+    const summaries = [
+      { type: 'reasoning', id: 'rs_a', summary: [{ type: 'summary_text', text: 'First' }], encrypted_content: 'opaque-a' },
+      { type: 'reasoning', id: 'rs_b', summary: [{ type: 'summary_text', text: 'Second' }], encrypted_content: 'opaque-b' },
+      output[1], output[2],
+    ];
+    const summaryTranslator = new BlockTranslator(context);
+    const summaryHost = new BlockAssembler();
+    const summaryChunks = [];
+    const accept = payload => {
+      const decoded = decodeEvent(JSON.stringify(payload));
+      if (decoded) for (const chunk of summaryTranslator.push(decoded)) {
+        summaryChunks.push(chunk);
+        summaryHost.push(chunk);
+      }
+    };
+    summaries.slice(0, 2).forEach((item, index) => {
+      accept({ type: 'response.reasoning_summary_text.delta', output_index: index, summary_index: 0, delta: item.summary[0].text });
+      accept({ type: 'response.output_item.done', output_index: index, item });
+    });
+    assert.equal(summaryChunks.some(chunk => chunk.type === 'block-end'), false);
+    assert.deepEqual(summaryHost.blocks(), [{ type: 'reasoning', text: 'First\\nSecond' }]);
+    accept({ type: 'response.completed', response: { output: summaries } });
+    assert.deepEqual(summaryChunks.filter(chunk => chunk.type === 'block-start').map(chunk => chunk.blockType), ['reasoning', 'text', 'tool-call']);
+    const summarySaved = JSON.parse(JSON.stringify(summaryHost.message({ ...context, replayState: summaryHost.replayState })));
+    assert.deepEqual(toResponsesBody(toNeutralRequest(requestOf({ ...options, messages: [summarySaved] }), context.scope)).input, summaries);
     // Configuration history survives the real host's assembly and JSON persistence.
     let history = [{ role: 'user', content: [{ type: 'text', text: 'first' }] }];
     let previousBody;

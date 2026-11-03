@@ -24,7 +24,8 @@ export interface ReplayContext {
 export interface ReplayEnvelope {
   response: {
     kind: 'chatgpt-responses'
-    version: 1
+    version: 1 | 2
+    itemBlocks?: ReplayBlock[]
     provider: string
     model: string
     scope: string
@@ -80,7 +81,7 @@ export function outputItems(value: unknown): OutputItem[] | undefined {
   return items.every((item): item is OutputItem => item !== undefined) ? items : undefined
 }
 
-/** One native item is one durable block, including reasoning without a visible summary. */
+/** Per-item content for native replay validation, before consecutive summaries are grouped for display. */
 export function outputBlock(item: OutputItem): ReplayBlock {
   if (item.type === 'function_call') {
     return { type: 'tool-call', id: String(item['call_id']), name: String(item['name']), arguments: String(item['arguments']) }
@@ -115,14 +116,30 @@ function hasCompleteReasoning(output: readonly OutputItem[]): boolean {
       && typeof item['encrypted_content'] === 'string' && item['encrypted_content'].length > 0)
 }
 
+/** Display consecutive native reasoning items as one block, retaining empty items in native history. */
+export function mergeReasoningBlocks(blocks: readonly ReplayBlock[]): ReplayBlock[] {
+  const merged: ReplayBlock[] = []
+  for (const block of blocks) {
+    const last = merged.at(-1)
+    if (block.type === 'reasoning' && last?.type === 'reasoning') {
+      if (block.text) last.text += (last.text ? '\n' : '') + block.text
+    } else merged.push({ ...block })
+  }
+  return merged
+}
+
 export function createReplay(context: ReplayContext, output: OutputItem[], blocks: ReplayBlock[]): ReplayEnvelope | undefined {
   if (output.length !== blocks.length || !hasCompleteReasoning(output)) return undefined
   // Terminal snapshots may add encryption, but cannot silently change finalized
   // text or executable arguments in the host's transcript.
   if (output.some((item, index) => !outputMatchesBlock(item, blocks[index]!))) return undefined
+  const visible = mergeReasoningBlocks(blocks)
+  const grouped = visible.length !== blocks.length
   return {
-    response: { kind: 'chatgpt-responses', version: 1, ...context, blockCount: blocks.length, output: structuredClone(output) },
-    blocks: blocks.map(block => ({ fingerprint: fingerprint(block) })),
+    response: { kind: 'chatgpt-responses', version: grouped ? 2 : 1, ...context, blockCount: visible.length, output: structuredClone(output),
+      ...grouped ? { itemBlocks: structuredClone(blocks) } : {},
+    },
+    blocks: visible.map(block => ({ fingerprint: fingerprint(block) })),
   }
 }
 
@@ -135,14 +152,26 @@ export function replayOutput(
   const envelope = record(value)
   const response = record(envelope?.['response'])
   const metadata = envelope?.['blocks']
-  if (response?.['kind'] !== 'chatgpt-responses' || response['version'] !== 1
+  if (response?.['kind'] !== 'chatgpt-responses' || (response['version'] !== 1 && response['version'] !== 2)
     || response['provider'] !== context.provider || response['model'] !== context.model
     || response['scope'] !== context.scope || response['blockCount'] !== blocks.length
     || !Array.isArray(metadata) || metadata.length !== blocks.length) return undefined
   if (blocks.some((block, index) => record(metadata[index])?.['fingerprint'] !== fingerprint(block))) return undefined
   const output = outputItems(response['output'])
-  if (output === undefined || output.length !== blocks.length || !hasCompleteReasoning(output)) return undefined
-  if (output.some((item, index) => !outputMatchesBlock(item, blocks[index]!))) return undefined
+  if (output === undefined || !hasCompleteReasoning(output)) return undefined
+  if (response['version'] === 2) {
+    const itemBlocks = response['itemBlocks']
+    if (!Array.isArray(itemBlocks) || itemBlocks.length !== output.length
+      || output.some((item, index) => {
+        const block = record(itemBlocks[index])
+        return block === undefined || typeof block['type'] !== 'string'
+          || !outputMatchesBlock(item, block as { type: string })
+      })) return undefined
+    const visible = mergeReasoningBlocks(itemBlocks as ReplayBlock[])
+    if (visible.length !== blocks.length || visible.some((block, index) => fingerprint(block) !== fingerprint(blocks[index]!))) return undefined
+  } else {
+    if (output.length !== blocks.length || output.some((item, index) => !outputMatchesBlock(item, blocks[index]!))) return undefined
+  }
   return output
 }
 

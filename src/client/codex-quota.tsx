@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import type { CodexQuotaView } from '../codex-quota.ts'
 import { unwrap, type RemoteResult } from './result.ts'
+import { createAutosave } from './autosave.ts'
 
 export interface CodexQuotaRemote {
   codexQuotaStatus(): Promise<RemoteResult<CodexQuotaView>>
@@ -19,28 +20,63 @@ const MESSAGES: Record<string, string> = {
   'quota-unavailable': '额度查询暂不可用，请稍后重试。',
   'absolute-host-path-required': '请输入运行 DSH 的主机上的绝对路径。'
 }
+type Draft = { path: string, label: string, allowRefresh: boolean }
 
 /** User-only file authorization. The browser never reads or uploads auth.json contents. */
 export function CodexQuotaCard({ remote }: { remote: () => Promise<CodexQuotaRemote> }) {
   const [view, setView] = useState<CodexQuotaView>()
-  const [path, setPath] = useState('')
-  const [label, setLabel] = useState('')
-  const [allowRefresh, setAllowRefresh] = useState(false)
+  const [draft, setDraft] = useState<Draft>({ path: '', label: '', allowRefresh: false })
+  const draftRef = useRef(draft)
   const [busy, setBusy] = useState(false)
+  const [saveState, setSaveState] = useState('')
   const [error, setError] = useState<string>()
+  const autosave = useRef<ReturnType<typeof createAutosave<Draft>>>()
+  const failed = useRef(false)
   useEffect(() => {
-    let cancelled = false
+    let mounted = true
+    const saver = createAutosave<Draft>(async next => {
+      const result = unwrap(await (await remote()).selectCodexQuota(next.path.trim(), next.allowRefresh, next.label))
+      if (mounted) setView(result)
+    }, (state, failure) => {
+      if (!mounted) return
+      failed.current = state === 'error'
+      setSaveState(state)
+      const message = failure instanceof Error ? failure.message : ''
+      setError(state === 'error' ? (Object.hasOwn(MESSAGES, message) ? message : 'quota-unavailable') : undefined)
+    })
+    autosave.current = saver
     void remote().then(api => api.codexQuotaStatus()).then(result => {
       const next = unwrap(result)
-      if (!cancelled) { setView(next); setPath(next.path ?? ''); setLabel(next.label); setAllowRefresh(next.allowRefresh) }
-    }).catch(() => { if (!cancelled) setError('quota-unavailable') })
-    return () => { cancelled = true }
+      if (!mounted) return
+      const initial = { path: next.path ?? '', label: next.label, allowRefresh: next.allowRefresh }
+      setView(next); setDraft(initial); draftRef.current = initial
+    }).catch(() => { if (mounted) setError('quota-unavailable') })
+    return () => { mounted = false; void saver.flush() }
   }, [remote])
-  const act = async (operation: (api: CodexQuotaRemote) => Promise<RemoteResult<CodexQuotaView>>) => {
-    setBusy(true); setError(undefined)
+  const change = (patch: Partial<Draft>, immediate = false) => {
+    const next = { ...draftRef.current, ...patch }
+    draftRef.current = next
+    setDraft(next)
+    if (next.path.trim()) autosave.current?.schedule(next, immediate)
+    else { autosave.current?.cancel(); setSaveState(''); setError('absolute-host-path-required') }
+  }
+  const flush = () => {
+    if (failed.current && draftRef.current.path.trim()) autosave.current?.schedule(draftRef.current, true)
+    else void autosave.current?.flush()
+  }
+  const act = async (clear: boolean) => {
+    setBusy(true)
     try {
-      const next = unwrap(await operation(await remote()))
-      setView(next); setPath(next.path ?? ''); setLabel(next.label); setAllowRefresh(next.allowRefresh)
+      if (clear) autosave.current?.cancel()
+      await autosave.current?.flush()
+      if (!clear && failed.current) return
+      const api = await remote()
+      const next = unwrap(await (clear ? api.clearCodexQuota() : api.refreshCodexQuota()))
+      setView(next); setError(undefined)
+      if (clear) {
+        const empty = { path: '', label: next.label, allowRefresh: next.allowRefresh }
+        draftRef.current = empty; setDraft(empty); setSaveState('')
+      }
     } catch (failure) {
       const message = failure instanceof Error ? failure.message : ''
       setError(Object.hasOwn(MESSAGES, message) ? message : 'quota-unavailable')
@@ -50,23 +86,23 @@ export function CodexQuotaCard({ remote }: { remote: () => Promise<CodexQuotaRem
   return <details className="dsh-chatgpt-models" data-codex-quota="true">
     <summary className="dsh-chatgpt-summary">Codex 剩余额度（独立监控账号）</summary>
     <div className="dsh-chatgpt-models-body">
-      <p className="dsh-chatgpt-note">指定运行 DSH 的主机上的 Codex 授权文件；不会上传文件内容，不改变上面的 ChatGPT 调用账号。ChatGPT 后端额度接口可能发生变化。</p>
+      <p className="dsh-chatgpt-note">指定运行 DSH 的主机上的 Codex 授权文件；不会上传文件内容，不改变上面的 ChatGPT 调用账号。设置自动保存，文本停止输入 600ms 或离开输入框时保存；勾选授权立即生效。ChatGPT 后端额度接口可能发生变化。</p>
       <label>授权文件路径
-        <input className="dsh-chatgpt-urlinput" aria-label="Codex auth.json Host 路径" value={path} disabled={busy} onChange={event => setPath(event.target.value)} placeholder="~/.codex/auth.json" style={{ width: '100%', boxSizing: 'border-box' }} />
+        <input className="dsh-chatgpt-urlinput" aria-label="Codex auth.json Host 路径" value={draft.path} disabled={busy || !view} onChange={event => change({ path: event.target.value })} onBlur={flush} placeholder="~/.codex/auth.json" style={{ width: '100%', boxSizing: 'border-box' }} />
       </label>
-      <button type="button" disabled={busy || !view} onClick={() => { setPath(view?.defaultPath ?? '') }}>填入默认路径</button>
+      <button type="button" disabled={busy || !view} onClick={() => change({ path: view?.defaultPath ?? '' }, true)}>填入默认路径</button>
       <label>监控账号昵称
-        <input className="dsh-chatgpt-urlinput" aria-label="Codex 监控账号昵称" value={label} maxLength={80} disabled={busy} onChange={event => setLabel(event.target.value)} />
+        <input className="dsh-chatgpt-urlinput" aria-label="Codex 监控账号昵称" value={draft.label} maxLength={80} disabled={busy || !view} onChange={event => change({ label: event.target.value })} onBlur={flush} />
       </label>
       <label style={{ display: 'block' }}>
-        <input type="checkbox" checked={allowRefresh} disabled={busy} onChange={event => setAllowRefresh(event.target.checked)} />
+        <input type="checkbox" checked={draft.allowRefresh} disabled={busy || !view} onChange={event => change({ allowRefresh: event.target.checked }, true)} />
         允许使用 refresh_token 刷新，并原子写回此文件（与 Codex 共享；不保证非协作进程的并发刷新无冲突）
       </label>
       <div className="dsh-chatgpt-actions">
-        <button type="button" disabled={busy || !path.trim()} onClick={() => { void act(api => api.selectCodexQuota(path.trim(), allowRefresh, label)) }}>保存文件选择与授权</button>
-        <button type="button" disabled={busy || !view?.path} onClick={() => { void act(api => api.refreshCodexQuota()) }}>查询额度</button>
-        <button type="button" disabled={busy || !view?.path} onClick={() => { void act(api => api.clearCodexQuota()) }}>停止监控</button>
+        <button type="button" disabled={busy || !view?.path || !draft.path.trim()} onClick={() => { void act(false) }}>查询额度</button>
+        <button type="button" disabled={busy || !view?.path} onClick={() => { void act(true) }}>停止监控</button>
       </div>
+      <p role="status">{saveState === 'waiting' ? '等待自动保存…' : saveState === 'saving' ? '正在自动保存…' : saveState === 'saved' ? '已自动保存' : saveState === 'error' ? '自动保存失败；修改设置或重新离开输入框可重试。' : ''}</p>
       {reason ? <p className="dsh-chatgpt-error" role="alert">{MESSAGES[reason] ?? '额度暂不可用。'}</p> : null}
       <div aria-live="polite">
         {busy ? <p>正在处理…</p> : null}
