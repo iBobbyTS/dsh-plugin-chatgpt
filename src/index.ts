@@ -24,6 +24,7 @@ import { ChatGptAdapter, isCodedError } from './adapter.ts'
 import { ChatGptAuth } from './auth/manager.ts'
 import { ChatGptController } from './controller.ts'
 import { ChatGptSession } from './session.ts'
+import { CodexQuota, registerCodexQuota } from './codex-quota.ts'
 import type { AdapterChunk } from './convert/blocks.ts'
 import { requestOfWithImages, type ReadImage } from './convert/harness.ts'
 
@@ -243,5 +244,7 @@ export function apply(ctx: Context, config: Config): void {
     // after a sign-in that the selector slept through, so it has to be told.
     onRosterChanged: () => { ctx.emit('llm/adapters-updated') },
   })
-  new ChatGptController(ctx, session)
+  const codexQuota = new CodexQuota(stateDir)
+  registerCodexQuota(ctx, codexQuota, route)
+  new ChatGptController(ctx, session, codexQuota)
 }

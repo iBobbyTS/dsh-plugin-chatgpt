@@ -57,6 +57,8 @@ dsh --profile <name> --dump-config   # shows a "# == dsh-plugin-chatgpt" layer
 
 退出登录会先在授权服务器撤销可再生会话，再清除本地凭据；若服务器未能确认，卡片会如实说明。
 
+同一卡片可独立配置 **Codex 剩余额度监控**：选择 Host 授权文件路径，并按需明确允许刷新与原子写回；它不会改变模型调用账号。启用兼容的 Usage Stats 后，通过可选 Host 协议共享脱敏额度窗口。详见 [Codex 额度设置与安全限制](codex-quota.md)。
+
 ![模型页上的 ChatGPT 行，账号从这里登录](../assets/screenshot-2-models-page.png)
 
 无头 harness 不需要浏览器，可以直接驱动同一个会话对象：

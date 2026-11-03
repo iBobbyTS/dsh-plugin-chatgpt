@@ -29,6 +29,7 @@ import { unwrap, type RemoteResult } from './result.ts'
 import { contextWindowOptions } from '../models/context.ts'
 import type { ModelSwitchView } from '../models/switches.ts'
 import { installCardStyles } from './styles.ts'
+import { CodexQuotaCard, type CodexQuotaRemote } from './codex-quota.tsx'
 
 /** The browser context this plugin runs against. */
 type ClientContext = CordisContext & ClientContextServices
@@ -74,7 +75,7 @@ interface SignOutOutcome {
 type PendingWrite = { kind: 'model', id: string } | { kind: 'reset' }
 
 /** The Remote surface this card calls, as the Gateway actually resolves it. */
-interface ChatGptRemote {
+interface ChatGptRemote extends CodexQuotaRemote {
   status(): Promise<RemoteResult<StatusView>>
   begin(): Promise<RemoteResult<StatusView>>
   submit(value: string): Promise<RemoteResult<StatusView>>
@@ -351,6 +352,12 @@ export function ChatGptCard({ ctx, mounting }: { ctx: ClientContext, mounting: P
     }
   }, [ctx])
 
+  const quotaRemote = useCallback(async () => {
+    const refused = await mounting
+    if (refused !== undefined) throw new Error('quota-unavailable')
+    return await waitForRemote(ctx)
+  }, [ctx, mounting])
+
   if (status === undefined) {
     return (
       <div className="dsh-chatgpt-card">
@@ -381,6 +388,7 @@ export function ChatGptCard({ ctx, mounting }: { ctx: ClientContext, mounting: P
 
   return (
     <div className="dsh-chatgpt-card" data-chatgpt-signin={signInState}>
+      <CodexQuotaCard remote={quotaRemote} />
       {status.error === undefined ? null : <p className="dsh-chatgpt-error">{status.error}</p>}
 
       {revocationNote === undefined ? null : <p className="dsh-chatgpt-note">{revocationNote}</p>}

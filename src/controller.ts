@@ -19,6 +19,7 @@
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { ChatGptSession, ChatGptSignOutOutcome, ChatGptStatusView } from './session.ts'
 import type { ModelSwitchView } from './models/switches.ts'
+import type { CodexQuota, CodexQuotaView } from './codex-quota.ts'
 
 export type { ChatGptPendingView, ChatGptSignOutOutcome, ChatGptStatusView } from './session.ts'
 export type { ModelSwitchView } from './models/switches.ts'
@@ -31,9 +32,37 @@ export class ChatGptController extends TypertRemoteService {
    * @param ctx - the plugin context.
    * @param session - the state machine this service carries.
    */
-  constructor(ctx: unknown, session: ChatGptSession) {
+  constructor(ctx: unknown, session: ChatGptSession, private readonly codexQuota?: CodexQuota) {
     super(ctx, 'chatgptController', { namespace: 'chatgpt' })
     this.session = session
+  }
+
+  /** Read the independent Codex monitor configuration; never returns tokens. */
+  @Remote
+  codexQuotaStatus(): CodexQuotaView {
+    if (!this.codexQuota) throw new Error('Codex quota is unavailable')
+    return this.codexQuota.view()
+  }
+
+  /** Human authorization only: select a Host file and grant optional refresh/writeback. */
+  @Remote
+  selectCodexQuota(path: string, allowRefresh: boolean, label: string): CodexQuotaView {
+    if (!this.codexQuota) throw new Error('Codex quota is unavailable')
+    return this.codexQuota.select(path, allowRefresh, label)
+  }
+
+  /** Stop monitoring without deleting or revoking the Codex authorization. */
+  @Remote
+  clearCodexQuota(): CodexQuotaView {
+    if (!this.codexQuota) throw new Error('Codex quota is unavailable')
+    return this.codexQuota.clear()
+  }
+
+  /** Query only the selected monitor. No login or model-account switching. */
+  @Remote
+  async refreshCodexQuota(): Promise<CodexQuotaView> {
+    if (!this.codexQuota) throw new Error('Codex quota is unavailable')
+    return await this.codexQuota.refresh()
   }
 
   /**

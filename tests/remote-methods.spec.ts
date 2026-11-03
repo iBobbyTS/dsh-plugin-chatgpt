@@ -143,6 +143,10 @@ describe('the client Remote table', () => {
     const endpoints = remoteContribution().descriptors.map(d => `${d.namespace}/${d.method}`)
 
     assert.deepEqual(endpoints, [
+      'chatgpt/codexQuotaStatus',
+      'chatgpt/selectCodexQuota',
+      'chatgpt/clearCodexQuota',
+      'chatgpt/refreshCodexQuota',
       'chatgpt/status',
       'chatgpt/begin',
       'chatgpt/submit',

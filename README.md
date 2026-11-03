@@ -57,6 +57,8 @@ Open **Settings → Models**. The plugin owns a **ChatGPT** row, and the card on
 
 Signing out revokes the renewable session at the authorization server before clearing it locally, and says so when the server did not confirm.
 
+Optional **Codex quota monitoring** is configured independently in the same card. Select a Host auth-file path and explicitly grant refresh/writeback if desired; it never changes the inference account. With a compatible Usage Stats plugin, sanitized quota windows are shared through the optional Host protocol. See [Codex quota setup and safety limits](docs/codex-quota.md).
+
 ![The ChatGPT row on the Models page, where the account signs in](assets/screenshot-2-models-page.png)
 
 A headless harness drives the same session object with no browser at all:

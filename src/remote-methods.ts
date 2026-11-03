@@ -48,6 +48,10 @@ export interface RemoteMethod {
  * test.
  */
 export const REMOTE_METHODS: readonly RemoteMethod[] = [
+  { method: 'codexQuotaStatus', parameters: [] },
+  { method: 'selectCodexQuota', parameters: [{ wire: 'path' }, { wire: 'allowRefresh' }, { wire: 'label' }] },
+  { method: 'clearCodexQuota', parameters: [] },
+  { method: 'refreshCodexQuota', parameters: [] },
   { method: 'status', parameters: [] },
   { method: 'begin', parameters: [] },
   { method: 'submit', parameters: [{ wire: 'value' }] },

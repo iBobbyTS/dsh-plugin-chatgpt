@@ -23,6 +23,17 @@
 
 /** The whole sheet, kept in one template so the injection stays atomic. */
 export const CARD_STYLES = `
+[data-codex-quota] .dsh-chatgpt-models-body { display: flex; flex-direction: column; gap: 10px; }
+[data-codex-quota] label { color: var(--dsw-alias-label-primary); font-size: 13px; line-height: 20px; }
+[data-codex-quota] button {
+  font: inherit; font-size: 12px; padding: 6px 10px; border-radius: 6px;
+  border: 1px solid var(--dsw-alias-border-l2); color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-1); cursor: pointer;
+}
+[data-codex-quota] button:disabled { opacity: .5; cursor: default; }
+[data-codex-quota] button:focus-visible, [data-codex-quota] input:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
+[data-codex-quota] .dsh-chatgpt-actions { flex-wrap: wrap; }
+
 /* Collapsed by default: the harness row already renders the one-line head
    (name, status dot, actions), so the card must add no second line. */
 .dsh-chatgpt-card { display: none; }
