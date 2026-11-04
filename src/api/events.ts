@@ -168,9 +168,10 @@ function usageOf(response: Record<string, unknown> | undefined): ResponsesUsage 
     ...total === undefined ? {} : { totalTokens: total },
     ...cacheRead === undefined ? {} : { cacheReadTokens: cacheRead },
     ...cacheWrite === undefined ? {} : { cacheWriteTokens: cacheWrite },
-    // Reasoning output is a subset of the output count, and the meter refuses it
-    // when it exceeds that, so it is reported only while it still fits.
-    ...reasoning === undefined || output === undefined || reasoning > output ? {} : { reasoningTokens: reasoning },
+    // Reasoning is an optional output subset. A malformed detail must not make
+    // the harness reject otherwise valid call totals; preserve explicit zero.
+    ...reasoning === undefined || !Number.isSafeInteger(reasoning) || reasoning < 0
+      || output === undefined || reasoning > output ? {} : { reasoningTokens: reasoning },
   }
 }
 

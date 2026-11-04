@@ -196,6 +196,8 @@ On standard GPT-6 family models, the adapter attempts reasoning-effort changes u
 
 - **Each installation registers its own client** — ChatGPT settings lists one app row per registration, named by `agent_name_hint`, and this plugin keeps the account/client mapping after signing out so the next sign-in on the same installation reuses its row instead of adding another. A second state directory is a second installation to OpenAI, and registers separately; deleting a state directory is what forgets one.
 
+See [usage accounting and unresolved protocol limits](docs/usage-accounting.md) for missing cache details and malformed counters. A missing cache bucket does not establish zero usage; the current fallback cannot guarantee an exact uncached-input breakdown.
+
 ## Dev Note
 
 ```text

@@ -206,6 +206,42 @@ describe('decodeEvent', () => {
     assert.equal(completed?.kind === 'completed' ? completed.usage?.reasoningTokens : 'x', undefined)
   })
 
+  it('drops invalid reasoning details without losing valid usage on any terminal response', () => {
+    for (const type of ['response.completed', 'response.incomplete', 'response.failed']) {
+      for (const reasoning of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1, null, '0', undefined]) {
+        const event = decodeEvent(JSON.stringify({
+          type,
+          response: { usage: {
+            input_tokens: 1000, output_tokens: 50, total_tokens: 1050,
+            input_tokens_details: { cached_tokens: 800, cache_write_tokens: 100 },
+            output_tokens_details: { reasoning_tokens: reasoning },
+          } },
+        }))
+        assert.ok(event && 'usage' in event)
+        assert.deepEqual(event.usage, {
+          inputTokens: 100, outputTokens: 50, totalTokens: 1050,
+          cacheReadTokens: 800, cacheWriteTokens: 100,
+        }, `${type}: ${String(reasoning)}`)
+      }
+    }
+  })
+
+  it('preserves zero and the inclusive output bound for reasoning counts', () => {
+    for (const reasoning of [0, 50]) {
+      const event = decodeEvent(JSON.stringify({
+        type: 'response.completed',
+        response: { usage: {
+          input_tokens: 10, output_tokens: 50, total_tokens: 60,
+          output_tokens_details: { reasoning_tokens: reasoning },
+        } },
+      }))
+      assert.ok(event?.kind === 'completed')
+      assert.equal(event.usage?.reasoningTokens, reasoning)
+      assert.equal(event.usage?.outputTokens, 50)
+      assert.equal(event.usage?.totalTokens, 60)
+    }
+  })
+
   it('tells the human where to act, not to retry, when the allowance is spent', () => {
     // Retrying a spent allowance cannot help, and the page that can is named. The
     // endpoint's guidance is explicit that the code does not identify the cause, so

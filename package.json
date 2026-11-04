@@ -51,6 +51,7 @@
     "assets",
     "docs/README.zh.md",
     "docs/cache-replay.md",
+    "docs/usage-accounting.md",
     "docs/codex-quota.md"
   ],
   "engines": {
