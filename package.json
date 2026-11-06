@@ -18,13 +18,13 @@
     "name": "Kanner",
     "email": "kanner.chen@gmail.com"
   },
-  "homepage": "https://github.com/ckanner/dsh-plugin-chatgpt#readme",
+  "homepage": "https://github.com/iBobbyTS/dsh-plugin-chatgpt#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ckanner/dsh-plugin-chatgpt.git"
+    "url": "git+https://github.com/iBobbyTS/dsh-plugin-chatgpt.git"
   },
   "bugs": {
-    "url": "https://github.com/ckanner/dsh-plugin-chatgpt/issues"
+    "url": "https://github.com/iBobbyTS/dsh-plugin-chatgpt/issues"
   },
   "type": "module",
   "main": "lib/index.js",
@@ -52,7 +52,10 @@
     "docs/README.zh.md",
     "docs/cache-replay.md",
     "docs/usage-accounting.md",
-    "docs/codex-quota.md"
+    "docs/codex-quota.md",
+    "docs/auth-and-models.md",
+    "docs/architecture.md",
+    "docs/development.md"
   ],
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

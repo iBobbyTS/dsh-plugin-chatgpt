@@ -168,7 +168,7 @@ try {
   mkdirSync(installed, { recursive: true })
   execFileSync('tar', ['-xzf', join(temporary, report.filename), '-C', installed, '--strip-components=1'])
   const readmeImport = "import { ChatGptAuth } from 'dsh-plugin-chatgpt/auth'"
-  for (const path of ['README.md', 'docs/README.zh.md']) {
+  for (const path of ['docs/auth-and-models.md']) {
     assert.ok(readFileSync(join(root, path), 'utf8').includes(readmeImport), path + ' must use the public auth entry')
   }
   const packedManifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'))
@@ -182,5 +182,5 @@ try {
     assert.equal(typeof auth.begin, 'function');
   `)
   execFileSync(process.execPath, [entry, join(temporary, 'state')], { cwd: temporary, stdio: 'inherit' })
-  console.log('packed auth export verified: README import and constructor work outside the checkout')
+  console.log('packed auth export verified: documented import and constructor work outside the checkout')
 } finally { rmSync(temporary, { recursive: true, force: true }) }
