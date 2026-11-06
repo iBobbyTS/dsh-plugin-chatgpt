@@ -4,7 +4,7 @@ English | [中文](docs/README.zh.md)
 
 Use a signed-in ChatGPT subscription as the `chatgpt` model provider in DSH. The plugin lists account models, preserves tool/reasoning replay, supports per-model context budgets, and optionally shares sanitized Codex quota windows with Usage Stats.
 
-This is the [iBobbyTS fork](https://github.com/iBobbyTS/dsh-plugin-chatgpt) of [ckanner/dsh-plugin-chatgpt](https://github.com/ckanner/dsh-plugin-chatgpt). Install the built checkout below; the upstream npm package does not contain this fork's changes.
+This is the [iBobbyTS fork](https://github.com/iBobbyTS/dsh-plugin-chatgpt) of [ckanner/dsh-plugin-chatgpt](https://github.com/ckanner/dsh-plugin-chatgpt). Install this fork's prebuilt package below; the upstream npm package does not contain this fork's changes.
 
 ## Compatibility
 
@@ -12,22 +12,13 @@ Verified: DSH 0.2.2-rc.1 (source review and automated checks); Desktop testing h
 
 ## Install
 
-Requires DSH, Node.js `^22.19.0 || >=24.0.0`, and pnpm for DSH plugin installation. Build from this fork:
+Requires DSH, Node.js `^22.19.0 || >=24.0.0`, and pnpm for DSH plugin installation. Runtime JS is committed; installation needs no build:
 
 ```sh
-git clone https://github.com/iBobbyTS/dsh-plugin-chatgpt.git
-cd dsh-plugin-chatgpt
-npm ci --ignore-scripts
-npm run build
+dsh plugin --profile desktop add "git+https://github.com/iBobbyTS/dsh-plugin-chatgpt.git"
 ```
 
-Desktop: select the built repository directory in the application's plugin manager. The application owns the `desktop` profile. Web: from that directory, run:
-
-```sh
-dsh plugin --profile web add "$PWD"
-```
-
-Use the full path in Windows cmd. Restart the DSH Host and refresh the page. To update, update this checkout, rebuild, and add the same directory through the same profile/plugin manager.
+Restart the DSH Host and refresh the page. Update from the same fork and profile. For development, a locally built checkout can also be selected in the plugin manager; see Development for build commands.
 
 ## Use
 

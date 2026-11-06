@@ -51,11 +51,11 @@ Usage Stats 维护 `usageQuota` v1 注册表，ChatGPT 通过可选 Cordis 注�
 ## 验证
 
 ```sh
-npm run typecheck
-npm run build
-npm test
-npm run verify:client
-npm run verify:package
+pnpm typecheck
+pnpm build:runtime
+pnpm test
+pnpm verify:client
+pnpm verify:package
 ```
 
 在 Usage Stats 仓库可运行：

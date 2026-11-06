@@ -17,6 +17,7 @@
 | `src/convert/harness.ts` | DSH request boundary, including session identity and replay metadata. |
 | `src/convert/replay.ts` | Validated native output and DSH replay envelopes, scoped to an account and model. |
 | `src/convert/blocks.ts` | Wire events to the harness's numbered content blocks. |
+| `src/quota-protocol.ts`, `src/models/view.ts` | Pure public view contracts shared with the Client; no storage or Node dependencies. |
 | `src/api/client.ts` | The two HTTP calls: list models, run one turn. |
 | `src/models/describe.ts` | Availability and capacities, preferring what the account reports over the bundled catalog. |
 | `src/adapter.ts` | The harness-facing half of the provider contract. |

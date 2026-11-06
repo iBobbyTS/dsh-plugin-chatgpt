@@ -15,3 +15,5 @@ Provide the DSH `chatgpt` route through Sign in with ChatGPT, including account/
 [README](README.md) is the human entry; [authentication/models](docs/auth-and-models.md), [architecture](docs/architecture.md), [replay](docs/cache-replay.md), [usage](docs/usage-accounting.md), and [quota](docs/codex-quota.md) own their detailed contracts. [Development](docs/development.md) owns build, verification, and documentation commands. CHANGELOG is history.
 
 Edit English README prose and its translation entries, then generate the Chinese README; never edit the generated translation alone. Keep linked documents in the package's `files` list. Run relevant `package.json` checks; packaging requires a prior build. Distinguish source/simulated checks from real host and live-provider results. Review staged changes and `git diff --cached --check` before committing.
+
+共同构建与交付合同见[统一规范](../docs/plugin-development.md)；`src/` 是运行逻辑编辑源，`lib/` 由构建生成。具体维护命令由本项目开发文档拥有。

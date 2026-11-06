@@ -2,7 +2,7 @@
  * Verify the browser bundle against the loader contract.
  *
  * The card cannot be checked by reading it: what matters is whether the page can
- * load it at all. So this runs the same bundling the build does, evaluates the
+ * load it at all. So this evaluates the actual built
  * artifact with the loader facade the HTML installs, and calls `apply` with a
  * context that records what it registers. A bundle that fails here fails in the
  * browser with a console error nobody reads.
@@ -13,7 +13,6 @@
  */
 
 import { createRequire } from 'node:module'
-import { build } from 'esbuild'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -24,35 +23,8 @@ const root = join(here, '..')
 const require = createRequire(import.meta.url)
 const packageName = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).name
 
-const EXTERNAL = [
-  'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client',
-  '@deepseek-ai/cordis', '@deepseek-ai/dsh-client-store',
-  '@deepseek-ai/dsh-client-ui-slots', '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-ui-dockkit',
-]
-
-const result = await build({
-  entryPoints: [join(root, 'src', 'client', 'index.tsx')],
-  bundle: true,
-  format: 'cjs',
-  platform: 'browser',
-  target: 'es2022',
-  jsx: 'automatic',
-  external: EXTERNAL,
-  write: false,
-  logLevel: 'warning',
-  legalComments: 'none',
-})
-
-const body = result.outputFiles[0]?.text ?? ''
-/** The same wrapper the build emits. */
-const bundle = `window.__ModuleLoader__.load({ id: ${JSON.stringify(packageName)}, factory: function (require) {
-  var module = { exports: {} }; var exports = module.exports;
-  (function (module, exports, require) {
-${body}
-  })(module, exports, require);
-  return module.exports;
-} });`
+const bundle = readFileSync(join(root, 'lib/client.js'), 'utf8')
+const body = bundle
 
 /** The registrations the bundle made, for assertion. */
 const registered = []

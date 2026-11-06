@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.host.json",
+  "compilerOptions": {
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": [
+    "tests/**/*.ts",
+    "dev-types/client.d.ts"
+  ],
+  "exclude": []
+}

@@ -37,11 +37,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           # Node 22 is the lowest the plugin supports, so the artifact is built
           # and published by the oldest runtime it claims to work on.
-          node-version: '22.x'
+          node-version: '22.19.0'
           registry-url: https://registry.npmjs.org
 
       - name: Use an npm that knows trusted publishing
@@ -53,13 +54,13 @@ jobs:
           node --version
           npm --version
 
-      - run: npm install --ignore-scripts
+      - run: pnpm install --frozen-lockfile
 
       - name: Checkout pinned DSH contract sources
         uses: actions/checkout@v4
         with:
           repository: deepseek-ai/deepseek-harness
-          ref: d743267388641bc76f17c45ce8b4c231aed1d32c
+          ref: 66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db
           path: .harness-contract
           persist-credentials: false
           sparse-checkout: |
@@ -68,20 +69,10 @@ jobs:
             packages/util/values/src
             packages/util/crypto/src
 
-      - name: Unit tests
-        run: npm test
+      - name: Candidate tests and distribution
+        run: pnpm check
       - name: Real DSH stream and replay contract
-        run: npm run verify:harness -- .harness-contract
-      - name: Build
-        run: npm run build
-      - name: Type check
-        run: npm run typecheck
-      - name: Browser bundle honours the loader contract
-        run: npm run verify:client
-      - name: Published package would load
-        run: npm run verify:package
-      - name: README pair is aligned
-        run: npm run check:i18n
+        run: pnpm verify:harness .harness-contract
 
       - name: Resolve the version, and refuse a tag that does not match it
         # A publish is not undoable, and an npm version can never be reused, so a

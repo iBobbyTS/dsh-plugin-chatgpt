@@ -1,3 +1,4 @@
+import type { Context } from '@deepseek-ai/cordis'
 /**
  * The browser's way into the sign-in flow.
  *
@@ -32,7 +33,7 @@ export class ChatGptController extends TypertRemoteService {
    * @param ctx - the plugin context.
    * @param session - the state machine this service carries.
    */
-  constructor(ctx: unknown, session: ChatGptSession, private readonly codexQuota?: CodexQuota) {
+  constructor(ctx: Context, session: ChatGptSession, private readonly codexQuota?: CodexQuota) {
     super(ctx, 'chatgptController', { namespace: 'chatgpt' })
     this.session = session
   }

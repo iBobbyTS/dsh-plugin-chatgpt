@@ -1,5 +1,5 @@
 import { describe, it } from 'node:test'
-import type { Branded, ContentBlock, GenerateOptions } from '@deepseek-ai/dsh-llm'
+import type { ToolCallId, MessageId, ContentBlock, GenerateOptions } from '@deepseek-ai/dsh-llm'
 import { required } from './helpers.ts'
 import assert from 'node:assert/strict'
 import { toNeutralRequest, type HarnessMessage, type HarnessRequest } from '../src/adapter.ts'
@@ -144,11 +144,11 @@ describe('cache-preserving history', () => {
   it('keeps native state and empty reasoning blocks across the actual plugin request boundary', () => {
     const saved = assistant()
     const content: ContentBlock[] = saved.content.map(block => block.type === 'tool-call'
-      ? { ...block, id: block.id as Branded<'ToolCallId'> } : block)
-    const options: GenerateOptions = {
+      ? { ...block, id: block.id as ToolCallId } : block)
+    const options: GenerateOptions<'compaction'> = {
       provider: context.provider, model: context.model,
-      messages: [{ role: 'assistant', source: saved.source, content, id: 'message-1' as Branded<'MessageId'> }],
-      sessionId: 'session-1' as Branded<'SessionId'>, purpose: 'compaction',
+      messages: [{ role: 'assistant', source: saved.source, content, id: 'message-1' as MessageId }],
+      sessionId: 'session-1' as NonNullable<GenerateOptions['sessionId']>, purpose: 'compaction',
     }
     const translated = requestOf(options)
     assert.deepEqual(translated.messages[0]?.content, saved.content)

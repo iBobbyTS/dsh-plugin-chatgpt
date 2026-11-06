@@ -22,21 +22,8 @@ import { isContextWindow, type ContextWindow } from './context.ts'
 /** File name inside the installation's state directory. */
 const OVERRIDES_FILENAME = 'models.json'
 
-/** One roster model as the provider card's model list shows it. */
-export interface ModelSwitchView {
-  /** The model id, exactly as the roster and a request would carry it. */
-  id: string
-  /** Display name from the roster entry, before any hand-set override. */
-  defaultName: string
-  /** The name the selector shows: the hand-set override, else the roster's. */
-  name: string
-  /** Whether the human switched this model off. */
-  disabled: boolean
-  /** Effective context budget selected on the model page. */
-  contextWindow: number
-  /** Budget restored when the saved model-page choice is cleared. */
-  defaultContextWindow: number
-}
+export type { ModelSwitchView } from './view.ts'
+import type { ModelSwitchView } from './view.ts'
 
 /** The hand-set reshaping of the roster, as the file stores it. */
 export interface ModelOverridesFile {

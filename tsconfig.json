@@ -15,12 +15,13 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "outDir": "lib",
-    "declarationDir": "lib/types",
-    "rootDir": "src",
     "skipLibCheck": true,
-    "types": ["node"]
-  },
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/index.ts"]
+    "types": [
+      "node"
+    ],
+    "noEmit": true,
+    "lib": [
+      "ES2023"
+    ]
+  }
 }

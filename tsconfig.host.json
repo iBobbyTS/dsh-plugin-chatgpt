@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/**/*.ts",
+    "dev-types/@deepseek-ai/**/*.d.ts"
+  ],
+  "exclude": [
+    "src/client.ts",
+    "src/client/**",
+    "src/client-contract.ts"
+  ]
+}

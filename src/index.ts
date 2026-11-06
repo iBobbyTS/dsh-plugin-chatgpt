@@ -14,11 +14,13 @@
  * @module dsh-plugin-chatgpt
  */
 
-import z, { type Volatile } from '@deepseek-ai/schemastery'
+import z from '@deepseek-ai/schemastery'
+import type { Volatile } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-settings'
 import type { Context } from '@deepseek-ai/cordis'
 import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 import type {
-  AdapterRegistrationHandle, DirectoryRegistrationHandle, GenerateOptions, StreamChunk,
+  AdapterRegistrationHandle, DirectoryRegistrationHandle, GenerateOptions, StreamChunk, LlmResolvedModelInfo,
 } from '@deepseek-ai/dsh-llm'
 import { ChatGptAdapter, isCodedError } from './adapter.ts'
 import { ChatGptAuth } from './auth/manager.ts'
@@ -37,7 +39,7 @@ import { requestOfWithImages, type ReadImage } from './convert/harness.ts'
  * declare one, and renders a provider row only for a row whose namespace exists.
  * A plugin with config but no schema therefore has a route the page cannot show.
  */
-export const Config = z.object({
+export const Config: z<Record<string, unknown>, Config> = z.object({
   /** Provider route this plugin serves. */
   provider: z.string().required().volatile(),
   /** Display name for the provider row and the account card. */
@@ -57,12 +59,12 @@ export const Config = z.object({
 /** The configuration one installation supplies, as the harness resolves it. */
 export type Config = {
   provider: Volatile<string>
-  displayName: Volatile<string>
+  displayName: Volatile<string | undefined>
   stateDir: Volatile<string>
-  baseUrl: Volatile<string>
-  contextWindowLimit: Volatile<number>
-  modelContextWindowLimits: Volatile<Record<string, number>>
-  streamIdleTimeoutMs: Volatile<number>
+  baseUrl: Volatile<string | undefined>
+  contextWindowLimit: Volatile<number | undefined>
+  modelContextWindowLimits: Volatile<Record<string, number> | undefined>
+  streamIdleTimeoutMs: Volatile<number | undefined>
 }
 
 /** What this plugin calls itself in diagnostics. */
@@ -151,11 +153,12 @@ export class HarnessAdapter extends LlmAdapter {
     }
   }
 
-  override async resolveModel(provider: string, model: string): Promise<ReturnType<LlmAdapter['resolveModel']> extends Promise<infer T> ? T : never> {
-    return await this.inner.resolveModel(provider, model) as never
+  override async resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    // The inner adapter uses plain effort IDs; the host brands those strings nominally.
+    return await this.inner.resolveModel(provider, model) as LlmResolvedModelInfo
   }
 
-  override async *stream(options: GenerateOptions): AsyncGenerator<StreamChunk, void, undefined> {
+  override async *stream(options: GenerateOptions<string>): AsyncGenerator<StreamChunk, void, undefined> {
     try {
       const request = await requestOfWithImages(options, this.readImage)
       const chunks: AsyncGenerator<AdapterChunk, void, undefined> = this.inner.stream(options.provider, request)

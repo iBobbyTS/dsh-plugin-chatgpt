@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import type { CodexQuotaView } from '../codex-quota.ts'
+import type { CodexQuotaView } from '../quota-protocol.ts'
 import { unwrap, type RemoteResult } from './result.ts'
 import { createAutosave } from './autosave.ts'
 

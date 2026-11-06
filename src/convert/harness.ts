@@ -3,7 +3,7 @@ import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { HarnessMessage, HarnessRequest } from '../adapter.ts'
 
 /** Translate one harness request into what the adapter reads. */
-export function requestOf(options: GenerateOptions): HarnessRequest {
+export function requestOf(options: GenerateOptions<string>): HarnessRequest {
   const messages: HarnessMessage[] = options.messages.map(message => {
     const blocks = message.content.map((block) => {
       if (block.type === 'tool-call') {
@@ -56,7 +56,7 @@ export type ReadImage = (ref: unknown, signal?: AbortSignal) => Promise<{
 }>
 
 /** Resolve durable DSH image references to SIWC input_image data URLs, preserving block order. */
-export async function requestOfWithImages(options: GenerateOptions, readImage?: ReadImage): Promise<HarnessRequest> {
+export async function requestOfWithImages(options: GenerateOptions<string>, readImage?: ReadImage): Promise<HarnessRequest> {
   const request = requestOf(options)
   if (!options.messages.some(message => message.content.some(block => block.type === 'image'))) return request
   const messages = await Promise.all(options.messages.map(async (message, messageIndex) => ({

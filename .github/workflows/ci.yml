@@ -15,19 +15,20 @@ jobs:
       fail-fast: false
       matrix:
         # The plugin needs a Node with native TypeScript support, since the tests
-        # run the sources directly with no build step.
-        node: ['22.x', '24.x']
+        # exercise generated JS and native-TS test fixtures.
+        node: ['22.19.0', '24.11.0']
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - run: npm install --ignore-scripts
+      - run: pnpm install --frozen-lockfile
       - name: Checkout pinned DSH contract sources
         uses: actions/checkout@v4
         with:
           repository: deepseek-ai/deepseek-harness
-          ref: d743267388641bc76f17c45ce8b4c231aed1d32c
+          ref: 66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db
           path: .harness-contract
           persist-credentials: false
           sparse-checkout: |
@@ -35,17 +36,7 @@ jobs:
             packages/util/brand/src
             packages/util/values/src
             packages/util/crypto/src
-      - name: Unit tests
-        run: npm test
+      - name: Candidate tests and distribution
+        run: pnpm check
       - name: Real DSH stream and replay contract
-        run: npm run verify:harness -- .harness-contract
-      - name: Build
-        run: npm run build
-      - name: Type check
-        run: npm run typecheck
-      - name: Browser bundle honours the loader contract
-        run: npm run verify:client
-      - name: Published package would load
-        run: npm run verify:package
-      - name: README pair is aligned
-        run: npm run check:i18n
+        run: pnpm verify:harness .harness-contract

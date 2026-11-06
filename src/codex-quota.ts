@@ -12,30 +12,8 @@ const MAX_BYTES = 1024 * 1024
 const TIMEOUT_MS = 15_000
 
 type Json = Record<string, unknown>
-export type QuotaStatus = 'ok' | 'not-configured' | 'unauthorized' | 'rate-limited' | 'unavailable' | 'invalid-response'
-export interface CodexWindow { id: string, label?: string, usedPercent: number, windowSeconds?: number, resetsAt?: number }
-export interface CodexSnapshot {
-  observedAt: number
-  accounts: { id: string, label?: string, plan?: string, status: QuotaStatus, reason?: string, retryAt?: number, windows: CodexWindow[] }[]
-}
-/** Structural implementation of Usage Stats quota protocol v1; no runtime dependency. */
-export interface QuotaSource {
-  protocolVersion: 1
-  id: string
-  displayName: string
-  providerRoutes: string[]
-  revision(): string
-  read(options: { signal: AbortSignal }): Promise<CodexSnapshot>
-}
-export interface QuotaRegistry { protocolVersion: 1, register(source: QuotaSource): () => void }
-export interface CodexQuotaView {
-  path?: string
-  defaultPath: string
-  allowRefresh: boolean
-  label: string
-  snapshot?: CodexSnapshot
-  error?: string
-}
+export type { QuotaStatus, CodexWindow, CodexSnapshot, QuotaSource, QuotaRegistry, CodexQuotaView } from './quota-protocol.ts'
+import type { QuotaStatus, CodexWindow, CodexSnapshot, QuotaSource, QuotaRegistry, CodexQuotaView } from './quota-protocol.ts'
 interface Selection { path?: string, allowRefresh: boolean, label: string, salt: string }
 interface Document { raw: string, hash: string, json: Json, tokens: Json, accessToken: string, refreshToken?: string, accountId?: string, identity: string }
 class QuotaError extends Error {

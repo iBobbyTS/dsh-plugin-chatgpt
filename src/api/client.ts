@@ -1,3 +1,4 @@
+import type { ReadableStreamReadResult } from 'node:stream/web'
 /**
  * Calling the OpenAI API with a ChatGPT plan grant.
  *

@@ -20,19 +20,22 @@
  */
 
 import { Button, Input, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ClientContextServices, Context as CordisContext } from '@deepseek-ai/cordis'
+import type { Context as CordisContext } from '@deepseek-ai/cordis'
 import type * as React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { REMOTE_NAMESPACE } from '../remote-methods.ts'
 import { remoteContribution } from './remote.ts'
 import { unwrap, type RemoteResult } from './result.ts'
 import { contextWindowOptions } from '../models/context.ts'
-import type { ModelSwitchView } from '../models/switches.ts'
+import type { ModelSwitchView } from '../models/view.ts'
 import { installCardStyles } from './styles.ts'
 import { CodexQuotaCard, type CodexQuotaRemote } from './codex-quota.tsx'
 
 /** The browser context this plugin runs against. */
-type ClientContext = CordisContext & ClientContextServices
+type ClientContext = CordisContext & {
+ slots: import('@deepseek-ai/dsh-client-ui-slots').SlotRegistry
+ remote: { $mount(contribution: unknown): Promise<() => Promise<void>> }
+}
 
 /** The namespace this plugin's provider row is registered under. */
 const SETTINGS_NS = 'chatgpt'

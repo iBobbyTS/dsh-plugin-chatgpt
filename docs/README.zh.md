@@ -4,7 +4,7 @@
 
 在 DSH 中使用已登录的 ChatGPT 订阅作为 `chatgpt` 模型提供方。插件列出账号模型、保留工具与推理回放、提供逐模型上下文预算，并可向 Usage Stats 共享脱敏 Codex 额度窗口。
 
-这是 [ckanner/dsh-plugin-chatgpt](https://github.com/ckanner/dsh-plugin-chatgpt) 的 [iBobbyTS fork](https://github.com/iBobbyTS/dsh-plugin-chatgpt)。请安装以下构建后的 checkout；上游 npm 包不包含本 fork 的改动。
+这是 [ckanner/dsh-plugin-chatgpt](https://github.com/ckanner/dsh-plugin-chatgpt) 的 [iBobbyTS fork](https://github.com/iBobbyTS/dsh-plugin-chatgpt)。请安装下方的预构建包；上游 npm 包不包含本 fork 的改动。
 
 ## 兼容性
 
@@ -12,22 +12,13 @@
 
 ## 安装
 
-需要 DSH、Node.js `^22.19.0 || >=24.0.0`，以及 DSH 插件安装所需的 pnpm。从本 fork 构建：
+需要 DSH、Node.js `^22.19.0 || >=24.0.0`，以及 DSH 插件安装所需的 pnpm。运行 JS 已提交，安装时无需构建：
 
 ```sh
-git clone https://github.com/iBobbyTS/dsh-plugin-chatgpt.git
-cd dsh-plugin-chatgpt
-npm ci --ignore-scripts
-npm run build
+dsh plugin --profile desktop add "git+https://github.com/iBobbyTS/dsh-plugin-chatgpt.git"
 ```
 
-Desktop：在应用插件管理器中选择构建后的仓库目录；`desktop` profile 由应用管理。Web：从该目录运行：
-
-```sh
-dsh plugin --profile web add "$PWD"
-```
-
-Windows cmd 使用完整目录路径。安装后重启 DSH Host 并刷新页面。更新时更新本 checkout、重新构建，再通过同一 profile/插件管理器添加同一目录。
+重启 DSH Host 并刷新页面。更新使用同一 fork 和 profile。开发时也可在插件管理器中选择本地构建后的 checkout；构建命令见 Development。
 
 ## 使用
 

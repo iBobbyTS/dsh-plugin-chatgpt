@@ -165,13 +165,13 @@ The subscription endpoint can expose fewer capabilities than the general Respons
 
 ## Verification
 
-On a clean checkout, install development dependencies with `npm ci --ignore-scripts`.
-Run `npm run build` before `npm run verify:package`; packaging validation reads
+On a clean checkout, install development dependencies with `pnpm install --frozen-lockfile`.
+Run `pnpm build:runtime` before `pnpm verify:package`; packaging validation reads
 the generated `lib/` artifacts. Typechecking requires the installed `@types/node`.
-The same strict configuration now includes every test and fixture; it does not
+The separate strict test configuration includes every test and fixture; it does not
 disable strict null checks, unchecked-index checks, or exact optional properties.
 
-`npm test` includes:
+`pnpm test` includes:
 
 - Exact previous-input prefix assertions after further tool calls and commentary.
 - Multiple text/reasoning items, empty summaries, interleaved indexed deltas,
@@ -185,12 +185,12 @@ disable strict null checks, unchecked-index checks, or exact optional properties
 - Account/session/purpose isolation and context budget validation.
 - Unchanged provider usage accounting and existing authentication/error tests.
 
-Run `npm run verify:harness -- /path/to/deepseek-harness` against a DSH checkout.
+Run `pnpm verify:harness /path/to/deepseek-harness` against a DSH checkout.
 It bundles that checkout's real BlockAssembler and verifies assembly, empty
 encrypted reasoning, JSON restore, the plugin request boundary, and DSH's
 max-token block-pruning behavior. It neither boots a profile nor calls a model.
 Both CI and release checks run it against public DSH commit
-`d743267388641bc76f17c45ce8b4c231aed1d32c`, with the same malformed-stream
+`66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db`, with the same malformed-stream
 fixtures as the unit tests. This is a checked contract for that pinned host,
 not a claim about every future DSH version. Run it against a candidate checkout
 when updating the host. Block-count guards deliberately invalidate pruned

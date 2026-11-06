@@ -1,6 +1,6 @@
 /**
  * Verify the replay contract against an actual DSH checkout's BlockAssembler.
- * Usage: npm run verify:harness -- /path/to/deepseek-harness
+ * Usage: pnpm verify:harness /path/to/deepseek-harness
  * Bundles only the real assembler and its value helpers; never launches a
  * profile, loads credentials, contacts a provider, or modifies the checkout.
  */
@@ -23,12 +23,12 @@ try {
   const source = `
     import assert from 'node:assert/strict';
     import { BlockAssembler } from ${JSON.stringify(assembler)};
-    import { BlockTranslator } from ${JSON.stringify(join(plugin, 'src/convert/blocks.ts'))};
-    import { decodeEvent } from ${JSON.stringify(join(plugin, 'src/api/events.ts'))};
-    import { requestOf } from ${JSON.stringify(join(plugin, 'src/convert/harness.ts'))};
+    import { BlockTranslator } from ${JSON.stringify(join(plugin, 'lib/convert/blocks.js'))};
+    import { decodeEvent } from ${JSON.stringify(join(plugin, 'lib/api/events.js'))};
+    import { requestOf } from ${JSON.stringify(join(plugin, 'lib/convert/harness.js'))};
     import { resolveRetryPolicy } from '@deepseek-ai/dsh-llm';
-    import { ChatGptAdapter, toNeutralRequest } from ${JSON.stringify(join(plugin, 'src/adapter.ts'))};
-    import { toResponsesBody, prepareResponsesRequest } from ${JSON.stringify(join(plugin, 'src/convert/request.ts'))};
+    import { ChatGptAdapter, toNeutralRequest } from ${JSON.stringify(join(plugin, 'lib/adapter.js'))};
+    import { toResponsesBody, prepareResponsesRequest } from ${JSON.stringify(join(plugin, 'lib/convert/request.js'))};
     import { streamCases } from ${JSON.stringify(join(plugin, 'tests/fixtures/stream-cases.ts'))};
     const policy = resolveRetryPolicy(undefined);
     assert.equal(policy.mode, 'normal');

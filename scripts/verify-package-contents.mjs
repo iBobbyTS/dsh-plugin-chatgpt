@@ -90,10 +90,8 @@ function jsonDocuments(text) {
 
 /** The files npm would publish, from its own dry run. */
 function packedFiles() {
-  // --ignore-scripts: the report is about which files would ship, and the build
-  // output it reads is already on disk. Letting `prepare` run would also mix build
-  // progress into the JSON on stdout.
-  const raw = execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
+  // Runtime is built explicitly; pack executes normal lifecycle semantics.
+  const raw = execFileSync('npm', ['pack', '--dry-run', '--json'], {
     cwd: root,
     encoding: 'utf8',
     // npm writes its notices to stderr; only the JSON report on stdout is read.
@@ -159,7 +157,7 @@ console.log(
 // this checkout's self-reference and development source tree.
 const temporary = mkdtempSync(join(tmpdir(), 'chatgpt-packed-auth-'))
 try {
-  const raw = execFileSync('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', temporary], {
+  const raw = execFileSync('npm', ['pack', '--json', '--pack-destination', temporary], {
     cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
   })
   const report = jsonDocuments(raw).flatMap(packReports).find(item => typeof item?.filename === 'string')

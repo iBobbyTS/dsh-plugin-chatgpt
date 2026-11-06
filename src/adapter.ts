@@ -185,7 +185,7 @@ export interface HarnessRequest {
   reasoningEffort?: string
   signal?: AbortSignal
   sessionId?: string
-  purpose?: 'compaction' | 'session-title'
+  purpose?: string
 }
 
 /** One message as the harness states it. */
