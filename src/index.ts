@@ -228,12 +228,14 @@ export function apply(ctx: Context, config: Config): void {
   // The row the Models page renders. A route with no directory entry exists for
   // the agent loop but is invisible to every configuration surface, which is why
   // this is registered even though the roster comes from the account.
-  const directory: DirectoryRegistrationHandle = ctx.llm.registerConfigurableProviders([{
+  const providerEntry = {
     provider: route,
     displayName,
     settingsNs: SETTINGS_NS,
-    settingsPath: [],
-  }])
+    settingsPath: [] as string[],
+    nativeAuth: { env: [] as string[], oauth: true },
+  }
+  const directory: DirectoryRegistrationHandle = ctx.llm.registerConfigurableProviders([providerEntry])
   ctx.effect(() => () => { directory() })
 
   // The browser half reaches the sign-in through this service, under the
