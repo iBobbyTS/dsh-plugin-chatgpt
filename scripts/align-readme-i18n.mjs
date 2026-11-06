@@ -22,7 +22,8 @@ const translations = {
   "- [Codex quota setup and safety](docs/codex-quota.md)": "- [Codex 额度设置与安全](codex-quota.md)",
   "- [Architecture](docs/architecture.md) · [Development](docs/development.md) · [Development rules](https://github.com/iBobbyTS/dsh-plugin-chatgpt/blob/main/AGENTS.md)": "- [架构](architecture.md) · [开发](development.md) · [开发规范](https://github.com/iBobbyTS/dsh-plugin-chatgpt/blob/main/AGENTS.md)",
   "- [History](https://github.com/iBobbyTS/dsh-plugin-chatgpt/blob/main/CHANGELOG.md) · [MIT license](LICENSE)": "- [历史](https://github.com/iBobbyTS/dsh-plugin-chatgpt/blob/main/CHANGELOG.md) · [MIT 许可](../LICENSE)",
-  "DSH 0.2.2-rc.1 has source-contract and automated verification; this is not a real Desktop end-to-end result. Provider behavior and live endpoint limits require their own evidence, as described in the detailed guides.": "DSH 0.2.2-rc.1 已做源码合同核对和自动化验证，不代表真实 Desktop 端到端验收。提供方行为及线上端点边界需要独立证据，详见专题文档。"
+  "## Compatibility": "## 兼容性",
+  "Verified: DSH 0.2.2-rc.1 (source review and automated checks); Desktop testing has not been completed.": "已验证：DSH 0.2.2-rc.1（源码与自动化检查）；尚未完成 Desktop 实测。"
 }
 const english = readFileSync(join(root, 'README.md'), 'utf8')
 let fenced = false

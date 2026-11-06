@@ -6,6 +6,10 @@ Use a signed-in ChatGPT subscription as the `chatgpt` model provider in DSH. The
 
 This is the [iBobbyTS fork](https://github.com/iBobbyTS/dsh-plugin-chatgpt) of [ckanner/dsh-plugin-chatgpt](https://github.com/ckanner/dsh-plugin-chatgpt). Install the built checkout below; the upstream npm package does not contain this fork's changes.
 
+## Compatibility
+
+Verified: DSH 0.2.2-rc.1 (source review and automated checks); Desktop testing has not been completed.
+
 ## Install
 
 Requires DSH, Node.js `^22.19.0 || >=24.0.0`, and pnpm for DSH plugin installation. Build from this fork:
@@ -40,5 +44,3 @@ See [authentication and model settings](docs/auth-and-models.md) for headless us
 - [Codex quota setup and safety](docs/codex-quota.md)
 - [Architecture](docs/architecture.md) · [Development](docs/development.md) · [Development rules](https://github.com/iBobbyTS/dsh-plugin-chatgpt/blob/main/AGENTS.md)
 - [History](https://github.com/iBobbyTS/dsh-plugin-chatgpt/blob/main/CHANGELOG.md) · [MIT license](LICENSE)
-
-DSH 0.2.2-rc.1 has source-contract and automated verification; this is not a real Desktop end-to-end result. Provider behavior and live endpoint limits require their own evidence, as described in the detailed guides.

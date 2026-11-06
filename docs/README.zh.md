@@ -6,6 +6,10 @@
 
 这是 [ckanner/dsh-plugin-chatgpt](https://github.com/ckanner/dsh-plugin-chatgpt) 的 [iBobbyTS fork](https://github.com/iBobbyTS/dsh-plugin-chatgpt)。请安装以下构建后的 checkout；上游 npm 包不包含本 fork 的改动。
 
+## 兼容性
+
+已验证：DSH 0.2.2-rc.1（源码与自动化检查）；尚未完成 Desktop 实测。
+
 ## 安装
 
 需要 DSH、Node.js `^22.19.0 || >=24.0.0`，以及 DSH 插件安装所需的 pnpm。从本 fork 构建：
@@ -40,5 +44,3 @@ Windows cmd 使用完整目录路径。安装后重启 DSH Host 并刷新页面�
 - [Codex 额度设置与安全](codex-quota.md)
 - [架构](architecture.md) · [开发](development.md) · [开发规范](https://github.com/iBobbyTS/dsh-plugin-chatgpt/blob/main/AGENTS.md)
 - [历史](https://github.com/iBobbyTS/dsh-plugin-chatgpt/blob/main/CHANGELOG.md) · [MIT 许可](../LICENSE)
-
-DSH 0.2.2-rc.1 已做源码合同核对和自动化验证，不代表真实 Desktop 端到端验收。提供方行为及线上端点边界需要独立证据，详见专题文档。
