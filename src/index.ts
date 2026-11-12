@@ -113,9 +113,10 @@ export const inject = ['llm']
 function asHostError(error: unknown, fallbackCode: string): Error {
   if (error instanceof LlmError) return error
   if (isCodedError(error)) {
-    return new LlmError(error.message, error.code, error.status === undefined ? {} : { status: error.status })
+    return LlmError.fromFailure({ message: error.message, code: error.code,
+      ...error.status === undefined ? {} : { status: error.status } }, { cause: error })
   }
-  return new LlmError(error instanceof Error ? error.message : String(error), fallbackCode)
+  return LlmError.fromFailure({ message: error instanceof Error ? error.message : String(error), code: fallbackCode }, { cause: error })
 }
 
 /**
@@ -221,7 +222,7 @@ export function apply(ctx: Context, config: Config): void {
       readImage(ref: unknown, signal?: AbortSignal): Promise<{ data: Uint8Array, ref: { mediaType: string } }>
     } | undefined
     if (attachments === undefined) {
-      throw new LlmError('ChatGPT vision input requires the DSH attachment store', 'UNSUPPORTED')
+      throw new LlmError('ChatGPT vision input requires the DSH attachment store', 'UNSUPPORTED_CONTENT')
     }
     return attachments.readImage(ref, signal)
   })

@@ -8,7 +8,9 @@ This is the [iBobbyTS fork](https://github.com/iBobbyTS/dsh-plugin-chatgpt) of [
 
 ## Compatibility
 
-Verified: DSH 0.2.2-rc.1 (source review and automated checks); Desktop testing has not been completed.
+Verified: DSH 0.2.2-rc.2 (source review and minimal automated compatibility checks); Desktop testing has not been completed.
+
+In an isolated DSH 0.2.2-rc.2 Web instance, the signed-out ChatGPT card was visible on the native model settings page. Sign-in and live inference were skipped at the user's request; no authenticated provider behavior is claimed.
 
 ## Install
 

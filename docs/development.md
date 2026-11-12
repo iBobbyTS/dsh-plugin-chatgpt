@@ -8,7 +8,7 @@
 pnpm install --frozen-lockfile
 pnpm check
 pnpm build:runtime  # explicitly update committed lib after editing src
-pnpm verify:harness /path/to/DSH-0.2.2-rc.1
+pnpm verify:harness /path/to/DSH-0.2.2-rc.2
 ```
 
 `src/` is the only runtime editing source. Host and Client typecheck separately against actual public DSH types; `dev-types/client.d.ts` covers only the browser UI contracts consumed by the card. Pure quota/model view types have separate owners (`src/quota-protocol.ts`, `src/models/view.ts`), so Client typing does not pull Host storage into its environment.

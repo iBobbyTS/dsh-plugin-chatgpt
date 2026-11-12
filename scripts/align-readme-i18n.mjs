@@ -22,7 +22,8 @@ const translations = {
   "- [Architecture](docs/architecture.md) · [Development](docs/development.md) · [Development rules](https://github.com/iBobbyTS/dsh-plugin-chatgpt/blob/main/AGENTS.md)": "- [架构](architecture.md) · [开发](development.md) · [开发规范](https://github.com/iBobbyTS/dsh-plugin-chatgpt/blob/main/AGENTS.md)",
   "- [History](https://github.com/iBobbyTS/dsh-plugin-chatgpt/blob/main/CHANGELOG.md) · [MIT license](LICENSE)": "- [历史](https://github.com/iBobbyTS/dsh-plugin-chatgpt/blob/main/CHANGELOG.md) · [MIT 许可](../LICENSE)",
   "## Compatibility": "## 兼容性",
-  "Verified: DSH 0.2.2-rc.1 (source review and automated checks); Desktop testing has not been completed.": "已验证：DSH 0.2.2-rc.1（源码与自动化检查）；尚未完成 Desktop 实测。"
+  "In an isolated DSH 0.2.2-rc.2 Web instance, the signed-out ChatGPT card was visible on the native model settings page. Sign-in and live inference were skipped at the user's request; no authenticated provider behavior is claimed.": "隔离 DSH 0.2.2-rc.2 Web 的原生模型设置页已验证可见未登录的 ChatGPT 卡片。按用户要求跳过了登录和真实推理；不据此声称已验证登录后的供应商行为。",
+  "Verified: DSH 0.2.2-rc.2 (source review and minimal automated compatibility checks); Desktop testing has not been completed.": "已验证：DSH 0.2.2-rc.2（源码与最小自动化兼容检查）；尚未完成 Desktop 实测。"
 }
 const english = readFileSync(join(root, 'README.md'), 'utf8')
 let fenced = false
