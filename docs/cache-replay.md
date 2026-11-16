@@ -37,7 +37,7 @@ discovery, Responses serialization, and its opaque replay envelope.
    at their original positions. Tools remain in host-provided order.
 5. A stable 64-character hash scopes `prompt_cache_key` and the `session_id`
    header to a local authorization namespace, client registration, endpoint,
-   provider, session, and purpose. The manager creates a fresh random namespace
+   provider, session, and purpose (agent and compaction share one purpose group). The manager creates a fresh random namespace
    on adoption, even if a caller supplies the same client ID, subject, or email.
    Refresh and restart preserve it; reauthorization replaces it. Tokens, email
    addresses, and synthetic account labels are never used as replay identities.
@@ -155,13 +155,55 @@ validation checks both native items and the merged visible fingerprints. Version
 histories remain readable with their original block boundaries. No DSH session
 format migration is required.
 
+## Tool updates and compaction calls
+
+Resolved models advertise `toolUpdate: "in-history"`. DSH retains historical
+schemas and ordered tool-addition/removal blocks; the adapter reads those
+blocks against their `toolHistory` message IDs. Initial active declarations stay
+in top-level `tools`. New definitions become developer-role `additional_tools`
+items at the original block position, splitting surrounding text as needed.
+Removed definitions stay in history; a developer instruction marks them
+unavailable. Reactivating the same definition adds a developer instruction,
+without duplicating its native declaration. Removal is an instruction to the
+model, not a server-side revocation: DSH's admitted tool set remains the
+execution authority. A changed definition under an existing name needs a new
+DSH declaration series; the adapter does not silently overwrite history.
+
+Incomplete auxiliary histories use the host-projected complete declarations
+rather than claiming an old baseline. Initially deferred tools are not sent as
+active baseline tools. Missing definitions for retained addition blocks fail
+explicitly. These paths use DSH's projection and executor; no second tool
+registry or executor is introduced. SIWC documents support for
+[`additional_tools`](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations),
+which is separate from its unsupported Responses `tool_search` capability.
+
+Ordinary agent and `compaction` calls now share `prompt_cache_key` and the
+`session_id` header within the same authorization, endpoint, provider and actual
+session ID. Other purposes remain isolated, and forks retain distinct session
+identities. Ordinary conversation keys are unchanged; upgrading changes the
+compaction key. This removes a client-side routing/accounting split, not a
+measured service-side cache limitation.
+
+For standard GPT-6 models, a compaction call with no explicit effort retains the
+last effective effort only when native replay is valid and its preceding input
+hash/count still matches. An explicit effort always wins. Edited, truncated or
+foreign prefixes and old metadata without a usable snapshot do not inherit a
+selection by guesswork. Ordinary calls with omitted effort keep their existing
+behavior. The host still owns summary selection, thresholds and output budgets.
+No additional compression request or provider-side compaction endpoint is used.
+
+Validation uses synthetic HTTP responses and the real DSH projection/assembler.
+It establishes wire shape, ordering, restoration, isolation and fallback behavior;
+it does not establish improved live cache hit rates. SIWC acceptance and cache
+impact for the new tool-update/compaction combinations still need a live run.
+
 ## Reasoning effort changes
 
 Standard GPT-6 family requests keep the initial top-level effort (including omission) fixed. A later selection is represented by a `configuration_update` before the next user message, or after the tool results when continuing without a new user message. Switching back adds another update; prior updates remain in their original positions. The selected effort is saved locally rather than inferred from the response’s request-level reasoning field. See [OpenAI’s configuration update guidance](https://developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation).
 
 The response replay metadata carries the initial and effective efforts, update positions, and a hash/count of the serialized request input. The next request reuses these only when the latest assistant’s native replay is valid and its preceding input matches that snapshot. JSON restore and forks preserve the updates; altered, pruned, compacted, foreign-account or foreign-model histories establish a new baseline using the current selection. Metadata stores no duplicate prompt text. Old replay envelopes remain readable but cannot recover historical effort selections; their first upgraded response establishes a baseline. Unsupported model IDs keep the previous request-level behavior. No DSH core or session-format change is required.
 
-The subscription endpoint can expose fewer capabilities than the general Responses API. On 2026-10-31, a live synthetic GPT-6.1 Sol test accepted the initial low-effort request but rejected a medium-effort `configuration_update` with `subscription_sharing_unsupported_capability` and a message to remove unsupported input items. This is a route limitation, not proof of a malformed update. The adapter retries that explicit refusal once before any stream event is exposed, removes configuration updates, and sends the current top-level effort. A successful fallback records the refusal with native replay metadata, so later calls and restores of that history do not repeat the probe. Other errors propagate unchanged; no fallback starts after streaming begins. A new session can probe again if the route gains support. The fallback preserves native output replay but cannot preserve caching across effort changes.
+The subscription endpoint can expose fewer capabilities than the general Responses API. On 2026-10-31, a live synthetic GPT-6.1 Sol test accepted the initial low-effort request but rejected a medium-effort `configuration_update` with `subscription_sharing_unsupported_capability` and a message to remove unsupported input items. This is a route limitation, not proof of a malformed update. The adapter retries that explicit refusal once before any stream event is exposed, removes configuration updates, and sends the current top-level effort. A successful fallback records the refusal and an input hash/count with the actual request-level effort (without configuration updates) in native replay metadata, so later calls and restores of that history do not repeat the probe. Other errors propagate unchanged; no fallback starts after streaming begins. A new session can probe again if the route gains support. The fallback preserves native output replay but cannot preserve caching across effort changes.
 
 ## Verification
 

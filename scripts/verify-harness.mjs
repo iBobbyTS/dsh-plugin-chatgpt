@@ -17,6 +17,7 @@ if (!checkout) throw new Error('Pass the path to the DSH source checkout to veri
 const dsh = resolve(checkout)
 const plugin = fileURLToPath(new URL('../', import.meta.url))
 const assembler = join(dsh, 'packages/llm/llm/src/assembler.ts')
+const toolProjection = join(dsh, 'packages/llm/llm/src/content.ts')
 await access(assembler)
 const directory = await mkdtemp(join(tmpdir(), 'chatgpt-harness-contract-'))
 try {
@@ -26,7 +27,8 @@ try {
     import { BlockTranslator } from ${JSON.stringify(join(plugin, 'lib/convert/blocks.js'))};
     import { decodeEvent } from ${JSON.stringify(join(plugin, 'lib/api/events.js'))};
     import { requestOf } from ${JSON.stringify(join(plugin, 'lib/convert/harness.js'))};
-    import { resolveRetryPolicy } from '@deepseek-ai/dsh-llm';
+    import { projectToolUpdates } from ${JSON.stringify(toolProjection)};
+    import { createDeveloperMessage, createUserMessage, resolveRetryPolicy } from '@deepseek-ai/dsh-llm';
     import { ChatGptAdapter, toNeutralRequest } from ${JSON.stringify(join(plugin, 'lib/adapter.js'))};
     import { toResponsesBody, prepareResponsesRequest } from ${JSON.stringify(join(plugin, 'lib/convert/request.js'))};
     import { streamCases } from ${JSON.stringify(join(plugin, 'tests/fixtures/stream-cases.ts'))};
@@ -45,6 +47,24 @@ try {
       }
       assert.equal(policy.retryableCodes.includes('invalid_request_error'), false);
     } finally { globalThis.fetch = originalFetch; }
+    // The supplied host's actual projection must preserve the baseline and
+    // leave addition/removal semantics for this adapter to serialize.
+    const readTool = { name: 'read', description: 'Read', parameters: { type: 'object', properties: {} } };
+    const addedTool = { name: 'write', description: 'Write', parameters: { type: 'object', properties: {} } };
+    const initialUser = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Go' }] });
+    const addedMessage = createDeveloperMessage({ source: { kind: 'user' }, content: [{ type: 'tool-addition', toolName: 'write' }] });
+    const removedMessage = createDeveloperMessage({ source: { kind: 'user' }, content: [{ type: 'tool-removal', toolName: 'read' }] });
+    const toolHistory = { tools: [readTool], updates: [
+      { messageId: addedMessage.id, additions: [addedTool] }, { messageId: removedMessage.id, additions: [] },
+    ] };
+    const projected = projectToolUpdates([initialUser, addedMessage, removedMessage], [addedTool], 'in-history', toolHistory);
+    const toolsBody = toResponsesBody(toNeutralRequest(requestOf({ provider: 'chatgpt', model: 'gpt-6.1-sol',
+      messages: projected.messages, tools: projected.tools, toolHistory,
+    })));
+    assert.deepEqual(toolsBody.tools, [{ type: 'function', ...readTool }]);
+    assert.deepEqual(toolsBody.input[1], { type: 'additional_tools', role: 'developer', tools: [{ type: 'function', ...addedTool }] });
+    assert.equal(toolsBody.input[2].role, 'developer');
+    assert.match(JSON.stringify(toolsBody.input[2]), /no longer available/);
     const context = { provider: 'chatgpt', model: 'gpt-6.1-sol', scope: 'test-account' };
     const output = [
       { type: 'reasoning', id: 'rs_1', summary: [], encrypted_content: 'opaque' },

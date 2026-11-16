@@ -18,7 +18,16 @@ export declare function readReasoningReplay(value: unknown): ReasoningReplay | u
 export declare function prepareReasoning(raw: InputItem[], selected: string | undefined, previous: {
     state: ReasoningReplay;
     assistantOffset: number;
-} | undefined, assistantEnd: number): {
+} | undefined, assistantEnd: number, inherit?: boolean): {
+    input: InputItem[];
+    effort: string | undefined;
+    state: ReasoningReplay;
+};
+/** Record the actual request even after a route refuses configuration updates. */
+export declare function prepareReasoningWithoutUpdates(input: InputItem[], selected: string | undefined, previous: {
+    state: ReasoningReplay;
+    assistantOffset: number;
+} | undefined, inherit: boolean): {
     input: InputItem[];
     effort: string | undefined;
     state: ReasoningReplay;

@@ -28,6 +28,8 @@ Open **Settings → Models → ChatGPT** and choose **Sign in with ChatGPT**. Co
 
 Context budgets control what DSH reports and when it compacts; they are not service-side or spending limits. Signing out clears local credentials and reports whether remote revocation was confirmed. Quota-file monitoring is separate from the inference account and requires an explicit file selection.
 
+Tool additions preserve their history positions through `additional_tools`. Removals and reactivations become developer instructions; DSH owns execution eligibility. Compaction shares the conversation cache identity and retains reasoning effort only from verified replay metadata; cache hits are not guaranteed.
+
 See [authentication and model settings](docs/auth-and-models.md) for headless use, account limits, attachments, and configuration details.
 
 ## Documentation

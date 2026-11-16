@@ -160,7 +160,8 @@ it('falls back once on an explicit SIWC input capability refusal and remembers i
       assert.ok(finish?.replayState)
       if (reasoningEffort !== 'low') {
         assert.equal(finish.replayState.response.reasoningUpdatesUnsupported, true)
-        assert.equal(finish.replayState.response.reasoningReplay, undefined)
+        assert.equal(finish.replayState.response.reasoningReplay?.effort, reasoningEffort)
+        assert.deepEqual(finish.replayState.response.reasoningReplay?.updates, [])
       }
       const assistant: HarnessMessage = JSON.parse(JSON.stringify({ role: 'assistant',
         content: chunks.filter(c => c.type === 'block-end').map(c => c.block),
@@ -173,6 +174,13 @@ it('falls back once on an explicit SIWC input capability refusal and remembers i
     assert.deepEqual(bodies.map(b => b.reasoning?.effort), ['low', 'low', 'medium', 'high'])
     assert.deepEqual(bodies.map(b => b.input.filter(i => i.type === 'configuration_update').length), [0, 1, 0, 0])
     assert.ok(required(bodies[3]).input.some(i => i.id === 'msg_3'), 'fallback retains native output replay')
+    const compacted: AdapterChunk[] = []
+    for await (const chunk of new ChatGptAdapter(options).stream('chatgpt', {
+      provider: 'chatgpt', model: 'gpt-6.1-sol', sessionId: 's', purpose: 'compaction', messages,
+    })) compacted.push(chunk)
+    assert.equal(bodies.at(-1)?.reasoning?.effort, 'high')
+    assert.equal(bodies.at(-1)?.input.some(item => item.type === 'configuration_update'), false)
+    assert.equal(compacted.findLast(c => c.type === 'finish')?.replayState?.response.reasoningReplay?.effort, 'high')
     for (const [code, message] of [
       ['invalid_request_error', 'Remove unsupported input items.'],
       ['subscription_sharing_unsupported_capability', 'Hosted tool capability is unavailable.'],

@@ -28,6 +28,8 @@ dsh plugin --profile desktop add "git+https://github.com/iBobbyTS/dsh-plugin-cha
 
 上下文预算影响 DSH 报告的窗口与压缩时机，不是服务端或消费限额。退出登录会清除本地凭据，并说明远端撤销是否已确认。额度文件监控独立于推理账号，需要明确选择文件。
 
+工具新增通过 `additional_tools` 保留在原历史位置。移除和重新启用转换为 developer 指令；执行资格仍由 DSH 管理。上下文压缩复用会话缓存身份，并仅从验证通过的回放元数据继承推理深度；不保证缓存命中。
+
 无头使用、账号限制、附件和配置细节见[授权与模型设置](auth-and-models.md)。
 
 ## 文档

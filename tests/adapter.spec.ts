@@ -168,6 +168,7 @@ describe('ChatGptAdapter', () => {
       ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna'],
     )
     const resolved = await adapter.resolveModel('chatgpt', 'gpt-6.1-sol')
+    assert.equal(resolved.toolUpdate, 'in-history')
     assert.equal(resolved.provider, 'chatgpt')
     assert.equal(resolved.name, 'GPT 6.1 Sol')
     assert.ok(resolved.context.contextWindow >= 200000)

@@ -190,5 +190,7 @@ export function accountScope(
 /** Sessionless calls use implicit caching without a global shared key. */
 export function sessionCacheKey(scope: string, provider: string, sessionId?: string, purpose?: string): string | undefined {
   if (!sessionId) return undefined
-  return createHash('sha256').update(JSON.stringify([scope, provider, sessionId, purpose ?? 'agent'])).digest('hex')
+  // Compaction reads the agent's prefix; keep its routing/accounting identity.
+  const cachePurpose = purpose === 'compaction' ? 'agent' : purpose ?? 'agent'
+  return createHash('sha256').update(JSON.stringify([scope, provider, sessionId, cachePurpose])).digest('hex')
 }

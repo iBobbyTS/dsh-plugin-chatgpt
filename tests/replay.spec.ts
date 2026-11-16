@@ -279,6 +279,7 @@ describe('session cache identity', () => {
     const key = sessionCacheKey(scope, 'chatgpt', 's'.repeat(100))
     assert.match(required(key), /^[a-f0-9]{64}$/)
     assert.equal(key, sessionCacheKey(scope, 'chatgpt', 's'.repeat(100)))
+    assert.equal(key, sessionCacheKey(scope, 'chatgpt', 's'.repeat(100), 'compaction'))
     for (const other of [
       sessionCacheKey(required(accountScope('https://api.openai.com/v1', { ...credential, replayNamespace: '26d2c76e-b013-4915-b3b3-9d301d532aad' })), 'chatgpt', 's'.repeat(100)),
       sessionCacheKey(required(accountScope('https://another.example/v1', credential)), 'chatgpt', 's'.repeat(100)),

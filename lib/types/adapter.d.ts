@@ -118,6 +118,7 @@ export interface HarnessResolvedModel extends HarnessModelInfo {
     };
     defaultMaxTokens?: number;
     systemPromptUpdate?: 'in-history';
+    toolUpdate?: 'in-history';
     reasoning?: {
         efforts: readonly {
             id: string;

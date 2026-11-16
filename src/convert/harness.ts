@@ -4,8 +4,20 @@ import type { HarnessMessage, HarnessRequest } from '../adapter.ts'
 
 /** Translate one harness request into what the adapter reads. */
 export function requestOf(options: GenerateOptions<string>): HarnessRequest {
+  const history = options.toolHistory
+  const messageIds = new Set(options.messages.map(message => message.id))
+  const complete = history !== undefined && history.updates.every(update => messageIds.has(update.messageId))
+  const additions = new Map(history?.updates.map(update => [update.messageId, update.additions] as const) ?? [])
+  const declarations = complete ? history.tools.filter(tool => !tool.deferLoading) : options.tools
   const messages: HarnessMessage[] = options.messages.map(message => {
     const blocks = message.content.map((block) => {
+      if (block.type === 'tool-addition' || block.type === 'tool-removal') {
+        if (message.role !== 'developer' || !additions.has(message.id)) throw new Error('ChatGPT tool update needs matching DSH tool history')
+        if (block.type === 'tool-removal') return { type: 'tool-removal', toolName: block.toolName }
+        const tool = additions.get(message.id)?.find(tool => tool.name === block.toolName)
+        if (tool === undefined) throw new Error(`ChatGPT tool update has no declaration for ${block.toolName}`)
+        return { type: 'tool-addition', tool: { name: tool.name, description: tool.description, parameters: tool.parameters } }
+      }
       if (block.type === 'tool-call') {
         const call = block as { id: string, name: string, arguments: string }
         return { type: 'tool-call', id: String(call.id), name: call.name, arguments: call.arguments }
@@ -38,8 +50,8 @@ export function requestOf(options: GenerateOptions<string>): HarnessRequest {
     ...options.purpose === undefined ? {} : { purpose: options.purpose },
     ...options.system === undefined ? {} : { system: options.system },
     ...options.reasoningEffort === undefined ? {} : { reasoningEffort: String(options.reasoningEffort) },
-    ...options.tools === undefined ? {} : {
-      tools: options.tools.map(tool => ({
+    ...declarations === undefined ? {} : {
+      tools: declarations.map(tool => ({
         name: tool.name,
         description: tool.description,
         parameters: tool.parameters,

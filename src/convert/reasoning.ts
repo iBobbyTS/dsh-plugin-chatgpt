@@ -54,24 +54,27 @@ export function prepareReasoning(
   raw: InputItem[], selected: string | undefined,
   previous: { state: ReasoningReplay, assistantOffset: number } | undefined,
   assistantEnd: number,
+  inherit = false,
 ): { input: InputItem[], effort: string | undefined, state: ReasoningReplay } {
   let input = raw.slice()
   let baseEffort = selected ?? null
   let effective = selected ?? 'medium'
   let updates: ReasoningReplay['updates'] = []
+  let restored = false
   if (previous !== undefined) {
     const saved = previous.state
     const candidate = raw.slice()
     for (const u of saved.updates) candidate.splice(u.index, 0, update(u.effort))
     if (saved.inputCount === previous.assistantOffset + saved.updates.length
       && hash(candidate.slice(0, saved.inputCount)) === saved.inputHash) {
+      restored = true
       input = candidate
       baseEffort = saved.baseEffort
       effective = saved.effort
       updates = saved.updates.slice()
     }
   }
-  const desired = selected ?? 'medium'
+  const desired = selected ?? (inherit && restored ? effective : 'medium')
   if (desired !== effective) {
     // A follow-up gets its update before the next user. A tool continuation
     // has no new user message, so append the update after its tool results.
@@ -82,5 +85,22 @@ export function prepareReasoning(
   }
   return { input, effort: baseEffort ?? undefined, state: {
     baseEffort, effort: desired, inputCount: input.length, inputHash: hash(input), updates,
+  } }
+}
+
+/** Record the actual request even after a route refuses configuration updates. */
+export function prepareReasoningWithoutUpdates(
+  input: InputItem[], selected: string | undefined,
+  previous: { state: ReasoningReplay, assistantOffset: number } | undefined,
+  inherit: boolean,
+): { input: InputItem[], effort: string | undefined, state: ReasoningReplay } {
+  const saved = previous?.state
+  const valid = saved !== undefined && saved.updates.length === 0
+    && saved.inputCount === previous?.assistantOffset
+    && hash(input.slice(0, saved.inputCount)) === saved.inputHash
+  const effort = selected ?? (inherit && valid ? saved.effort : undefined)
+  return { input, effort, state: {
+    baseEffort: effort ?? null, effort: effort ?? 'medium',
+    inputCount: input.length, inputHash: hash(input), updates: [],
   } }
 }

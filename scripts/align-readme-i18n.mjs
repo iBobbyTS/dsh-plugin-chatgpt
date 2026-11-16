@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const translations = {
+  "Tool additions preserve their history positions through `additional_tools`. Removals and reactivations become developer instructions; DSH owns execution eligibility. Compaction shares the conversation cache identity and retains reasoning effort only from verified replay metadata; cache hits are not guaranteed.": "工具新增通过 `additional_tools` 保留在原历史位置。移除和重新启用转换为 developer 指令；执行资格仍由 DSH 管理。上下文压缩复用会话缓存身份，并仅从验证通过的回放元数据继承推理深度；不保证缓存命中。",
   "English | [中文](docs/README.zh.md)": "[English](../README.md) | 中文",
   "Use a signed-in ChatGPT subscription as the `chatgpt` model provider in DSH. The plugin lists account models, preserves tool/reasoning replay, supports per-model context budgets, and optionally shares sanitized Codex quota windows with Usage Stats.": "在 DSH 中使用已登录的 ChatGPT 订阅作为 `chatgpt` 模型提供方。插件列出账号模型、保留工具与推理回放、提供逐模型上下文预算，并可向 Usage Stats 共享脱敏 Codex 额度窗口。",
   "This is the [iBobbyTS fork](https://github.com/iBobbyTS/dsh-plugin-chatgpt) of [ckanner/dsh-plugin-chatgpt](https://github.com/ckanner/dsh-plugin-chatgpt). Install this fork's prebuilt package below; the upstream npm package does not contain this fork's changes.": "这是 [ckanner/dsh-plugin-chatgpt](https://github.com/ckanner/dsh-plugin-chatgpt) 的 [iBobbyTS fork](https://github.com/iBobbyTS/dsh-plugin-chatgpt)。请安装下方的预构建包；上游 npm 包不包含本 fork 的改动。",

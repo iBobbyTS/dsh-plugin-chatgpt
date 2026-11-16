@@ -4,7 +4,7 @@
  */
 import { DIRECT_TOKEN_SCOPE } from '../auth/protocol.ts'
 import type { OutputItem } from './replay.ts'
-import { prepareReasoning, supportsReasoningUpdates, type ReasoningReplay } from './reasoning.ts'
+import { prepareReasoning, prepareReasoningWithoutUpdates, supportsReasoningUpdates, type ReasoningReplay } from './reasoning.ts'
 
 export const STORE = false
 export const STREAM = true
@@ -20,7 +20,8 @@ export const REFUSED_FIELDS = [
 export interface TextPart { type: 'text', text: string }
 export interface ImagePart { type: 'image', url: string }
 export interface ToolCallPart { type: 'tool-call', id: string, name: string, arguments: string }
-export type InputPart = TextPart | ImagePart | ToolCallPart
+export interface ToolAdditionPart { type: 'tool-addition', tool: NeutralTool }
+export type InputPart = TextPart | ImagePart | ToolCallPart | ToolAdditionPart
 
 export interface NeutralMessage {
   role: 'system' | 'developer' | 'user' | 'assistant' | 'tool'
@@ -42,6 +43,8 @@ export interface NeutralTool {
 export interface NeutralRequest {
   /** Explicit subscription-route refusal, retained with the next successful response. */
   reasoningUpdatesUnsupported?: true
+  /** A compaction call without an explicit effort retains a verified prior selection. */
+  inheritReasoningEffort?: true
   model: string
   messages: readonly NeutralMessage[]
   /** Used when history has no leading system/developer instruction. */
@@ -117,13 +120,17 @@ export function prepareResponsesRequest(request: NeutralRequest): {
       content = []
     }
     for (const part of parts) {
-      if (part.type === 'tool-call') {
+      if (part.type === 'tool-addition') {
+        if (role !== 'developer') throw new Error('additional_tools requires developer role')
+        flush()
+        input.push({ type: 'additional_tools', role: 'developer', tools: [{ type: 'function', ...part.tool }] })
+      } else if (part.type === 'tool-call') {
         if (role !== 'assistant') continue
         flush()
         input.push({ type: 'function_call', call_id: part.id, name: part.name, arguments: part.arguments })
       } else if (part.type === 'text') {
         if (part.text.length > 0) content.push({ type: role === 'assistant' ? 'output_text' : 'input_text', text: part.text })
-      } else if (role === 'user') {
+      } else if (part.type === 'image' && role === 'user') {
         content.push({ type: 'input_image', image_url: part.url })
       }
     }
@@ -131,8 +138,9 @@ export function prepareResponsesRequest(request: NeutralRequest): {
     if (message.role === 'assistant') assistantEnd = input.length
   }
   unsupported ||= request.reasoningUpdatesUnsupported === true
-  const prepared = !unsupported && supportsReasoningUpdates(request.model)
-    ? prepareReasoning(input, request.reasoningEffort, previous, assistantEnd) : undefined
+  const prepared = !supportsReasoningUpdates(request.model) ? undefined : unsupported
+    ? prepareReasoningWithoutUpdates(input, request.reasoningEffort, previous, request.inheritReasoningEffort === true)
+    : prepareReasoning(input, request.reasoningEffort, previous, assistantEnd, request.inheritReasoningEffort === true)
   const effort = prepared === undefined ? request.reasoningEffort : prepared.effort
   return { body: {
     model: request.model, input: prepared?.input ?? input, stream: STREAM, store: STORE,

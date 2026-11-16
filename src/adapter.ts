@@ -169,6 +169,7 @@ export interface HarnessResolvedModel extends HarnessModelInfo {
   context: { contextWindow: number }
   defaultMaxTokens?: number
   systemPromptUpdate?: 'in-history'
+  toolUpdate?: 'in-history'
   reasoning?: {
     efforts: readonly { id: string, name: string, description?: string }[]
     defaultEffort?: string
@@ -209,6 +210,7 @@ export type HarnessBlock =
 export function toNeutralRequest(request: HarnessRequest, scope?: string): NeutralRequest {
   const context: ReplayContext | undefined = scope === undefined
     ? undefined : { provider: request.provider, model: request.model, scope }
+  const declared = new Map((request.tools ?? []).map(tool => [tool.name, tool]))
   const messages: NeutralMessage[] = request.messages.map(message => {
     const source = typeof message.source === 'object' && message.source !== null
       ? message.source as Record<string, unknown> : undefined
@@ -219,7 +221,23 @@ export function toNeutralRequest(request: HarnessRequest, scope?: string): Neutr
     const reasoningReplay = replay === undefined ? undefined : readReasoningReplay(replayState?.response?.reasoningReplay)
     const content: InputPart[] = []
     for (const block of message.content) {
-      if (block.type === 'text' && typeof block['text'] === 'string') {
+      if (block.type === 'tool-addition') {
+        if (message.role !== 'developer') throw new Error('ChatGPT tool additions require developer role')
+        const tool = block['tool'] as { name: string, description: string, parameters: Record<string, unknown> } | undefined
+        if (tool === undefined || typeof tool.name !== 'string' || typeof tool.description !== 'string'
+          || !tool.parameters || typeof tool.parameters !== 'object') throw new Error('ChatGPT tool addition needs a declaration')
+        const previous = declared.get(tool.name)
+        if (previous !== undefined) {
+          if (JSON.stringify(previous) !== JSON.stringify(tool)) throw new Error('ChatGPT tool redefinition needs a new DSH declaration series')
+          content.push({ type: 'text', text: `Tool availability update: ${JSON.stringify(tool.name)} is available again.` })
+        } else {
+          declared.set(tool.name, tool)
+          content.push({ type: 'tool-addition', tool })
+        }
+      } else if (block.type === 'tool-removal') {
+        if (message.role !== 'developer' || typeof block['toolName'] !== 'string') throw new Error('ChatGPT tool removal needs a developer tool name')
+        content.push({ type: 'text', text: `Tool availability update: ${JSON.stringify(block['toolName'])} is no longer available. Do not call it unless a later update makes it available again.` })
+      } else if (block.type === 'text' && typeof block['text'] === 'string') {
         content.push({ type: 'text', text: block['text'] })
       } else if (block.type === 'image' && typeof block['url'] === 'string') {
         content.push({ type: 'image', url: block['url'] })
@@ -244,6 +262,7 @@ export function toNeutralRequest(request: HarnessRequest, scope?: string): Neutr
     : sessionCacheKey(scope, request.provider, request.sessionId, request.purpose)
   return {
     model: request.model, messages,
+    ...request.purpose === 'compaction' ? { inheritReasoningEffort: true as const } : {},
     ...request.system === undefined ? {} : { system: request.system },
     ...request.tools?.length ? { tools: request.tools } : {},
     ...request.reasoningEffort === undefined ? {} : { reasoningEffort: request.reasoningEffort },
@@ -362,6 +381,7 @@ function toHarnessResolved(
     // Let DSH compact against this budget; the adapter never truncates history.
     context: { contextWindow },
     systemPromptUpdate: 'in-history',
+    toolUpdate: 'in-history',
     ...model.maxTokens === undefined ? {} : { defaultMaxTokens: Math.min(model.maxTokens, Math.floor(contextWindow / 2)) },
     ...model.reasoningEfforts === undefined ? {} : {
       reasoning: {

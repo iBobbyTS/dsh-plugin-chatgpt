@@ -23,7 +23,11 @@ export interface ToolCallPart {
     name: string;
     arguments: string;
 }
-export type InputPart = TextPart | ImagePart | ToolCallPart;
+export interface ToolAdditionPart {
+    type: 'tool-addition';
+    tool: NeutralTool;
+}
+export type InputPart = TextPart | ImagePart | ToolCallPart | ToolAdditionPart;
 export interface NeutralMessage {
     role: 'system' | 'developer' | 'user' | 'assistant' | 'tool';
     content: string | readonly InputPart[];
@@ -42,6 +46,8 @@ export interface NeutralTool {
 export interface NeutralRequest {
     /** Explicit subscription-route refusal, retained with the next successful response. */
     reasoningUpdatesUnsupported?: true;
+    /** A compaction call without an explicit effort retains a verified prior selection. */
+    inheritReasoningEffort?: true;
     model: string;
     messages: readonly NeutralMessage[];
     /** Used when history has no leading system/developer instruction. */
