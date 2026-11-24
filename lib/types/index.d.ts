@@ -39,6 +39,7 @@ export type Config = {
     contextWindowLimit: Volatile<number | undefined>;
     modelContextWindowLimits: Volatile<Record<string, number> | undefined>;
     streamIdleTimeoutMs: Volatile<number | undefined>;
+    requestDiagnostics: Volatile<boolean | undefined>;
 };
 /** What this plugin calls itself in diagnostics. */
 export declare const name = "chatgpt";

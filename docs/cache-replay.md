@@ -184,15 +184,33 @@ identities. Ordinary conversation keys are unchanged; upgrading changes the
 compaction key. This removes a client-side routing/accounting split, not a
 measured service-side cache limitation.
 
-For standard GPT-6 models, a compaction call with no explicit effort retains the
-last effective effort only when native replay is valid and its preceding input
-hash/count still matches. An explicit effort always wins. Edited, truncated or
-foreign prefixes and old metadata without a usable snapshot do not inherit a
-selection by guesswork. Ordinary calls with omitted effort keep their existing
-behavior. The host still owns summary selection, thresholds and output budgets.
-No additional compression request or provider-side compaction endpoint is used.
+For a live DSH session, compact **always uses the current conversation reasoning
+selection**, overriding the auxiliary call's effort, including a host-materialized
+model default. The plugin looks up the agent by the actual Session ID and snapshots
+`agent.model.current()` once before asynchronous request preparation; a pending
+selection made without another dialogue turn is included. A different route/model
+selection is not borrowed for a separately configured summarization model. An
+unsupported current choice fails before provider I/O. If the current selection
+omits effort, the selected model's declared default is used when available.
 
-Validation uses synthetic HTTP responses and the real DSH projection/assembler.
+Examples: medium dialogue → high dialogue → compact uses high; medium dialogue
+→ high dialogue → select medium without another dialogue → compact uses medium;
+medium dialogue → compact uses medium. The normal conversation's effort is not
+rewritten. Changing the selected effort before compact can intentionally change
+the rendered prefix; this policy guarantees the chosen effort, not a cache hit.
+
+Headless callers without a live selection reader fall back to the last effective
+GPT-6 effort only when native replay and its preceding input hash/count validate.
+That verified fallback also overrides an auxiliary/default effort. Edited,
+truncated, foreign or old metadata is never used to guess an effort or restore
+unauthorized opaque state. Callers needing a current pending selection can supply
+`ChatGptAdapterOptions.readCompactionSelection`. The host still owns summary
+selection, thresholds and output budgets; no extra compression request or
+provider-side compaction endpoint is introduced.
+
+Validation uses synthetic HTTP responses and the real DSH LLM runtime,
+projection and assembler. The three selection scenarios are tested with a
+conflicting low model default and with configuration updates accepted/refused.
 It establishes wire shape, ordering, restoration, isolation and fallback behavior;
 it does not establish improved live cache hit rates. SIWC acceptance and cache
 impact for the new tool-update/compaction combinations still need a live run.
@@ -204,6 +222,84 @@ Standard GPT-6 family requests keep the initial top-level effort (including omis
 The response replay metadata carries the initial and effective efforts, update positions, and a hash/count of the serialized request input. The next request reuses these only when the latest assistant’s native replay is valid and its preceding input matches that snapshot. JSON restore and forks preserve the updates; altered, pruned, compacted, foreign-account or foreign-model histories establish a new baseline using the current selection. Metadata stores no duplicate prompt text. Old replay envelopes remain readable but cannot recover historical effort selections; their first upgraded response establishes a baseline. Unsupported model IDs keep the previous request-level behavior. No DSH core or session-format change is required.
 
 The subscription endpoint can expose fewer capabilities than the general Responses API. On 2026-10-31, a live synthetic GPT-6.1 Sol test accepted the initial low-effort request but rejected a medium-effort `configuration_update` with `subscription_sharing_unsupported_capability` and a message to remove unsupported input items. This is a route limitation, not proof of a malformed update. The adapter retries that explicit refusal once before any stream event is exposed, removes configuration updates, and sends the current top-level effort. A successful fallback records the refusal and an input hash/count with the actual request-level effort (without configuration updates) in native replay metadata, so later calls and restores of that history do not repeat the probe. Other errors propagate unchanged; no fallback starts after streaming begins. A new session can probe again if the route gains support. The fallback preserves native output replay but cannot preserve caching across effort changes.
+
+## Redacted request diagnostics
+
+Request diagnostics are **on by default** for the installed Host adapter. They
+write `<stateDir>/request-diagnostics.jsonl` (normally
+`~/.dsh/chatgpt-subscription/request-diagnostics.jsonl`); set the plugin's live
+`requestDiagnostics` config to `false` to stop diagnostic attempts and writes.
+An in-flight request can then retain a start record without an end record.
+Headless `ChatGptAdapter` callers provide `stateDir` for the same default;
+without a state directory the adapter writes no files. No diagnostic records
+are sent to the browser, a remote logger, or an LLM.
+
+The HTTP client serializes its final prepared body once and fingerprints the
+**same string passed to fetch**, after any authentication renewal or
+configuration-update fallback. Each HTTP attempt has request/response/end JSONL
+records joined by `attemptId`; `callId` and an attempt ordinal join retries from
+one adapter call. Request records precede fetch; they show an HTTP attempt, not
+proof that bytes reached the server. End outcomes distinguish wire completion,
+failed/incomplete terminal events, HTTP errors, timeout, abort, early EOF and
+consumer cancellation. A wire `completed` record does not override the host's
+output validation or turn an invalid response into a successful turn.
+
+Request records include SHA-256 fingerprints of the exact serialized body,
+full input array, tools, reasoning and remaining settings; hashes of the actual
+body `prompt_cache_key` and `session_id` header; and cumulative input-prefix
+hashes. `prefixSha256[i]` is the hash of the exact serialized first `i + 1` input
+items. At most 8,192 prefix hashes are retained per attempt, with explicit
+`prefixesTruncated`; the full input hash and count are always retained. These
+are item/byte comparisons, **not** token counts or fingerprints of OpenAI's
+hidden rendered prefix.
+
+Within the running adapter, comparison uses the last recorded wire-completed
+attempt in the same authorization/endpoint scope, provider, actual session and
+purpose group. Agent/compaction share a group. It reports the matching item
+prefix, whether the entire earlier input is preserved (unknown if capped), and
+whether tools, reasoning, remaining settings and cache key match. Only 32 recent
+baseline groups are kept in memory; after restart, eviction or disabled logging,
+use retained JSONL records for offline comparison. Concurrent completions do not
+replace a newer baseline with an older-started attempt. Comparison is evidence
+about requests, never an assertion that OpenAI should have hit its cache.
+
+Response/end records retain the HTTP status, `x-request-id`, Responses ID,
+returned model, known `service_tier`, a hash of `system_fingerprint`, and
+provider usage counters (including explicit cache zeroes). Missing counters
+remain missing; unavailable IDs/usage/diagnostics are `null` or explicitly marked
+absent. `prompt_cache_diagnostics` uses an allowlist of documented type/reason
+enums and nonnegative integer token counts. Unknown strings/IDs are hashed
+rather than copied; extra fields, free-text explanations and arbitrary headers
+are discarded. Request IDs with the standard `req_`/UUID form and Responses IDs
+with `resp_` form remain readable for provider support correlation. Session UUIDs
+remain readable for matching DSH records; other identities and cache keys are
+fingerprints. Prompts, outputs, tool names/schemas, image bytes, opaque reasoning,
+error messages, endpoint URLs, email addresses, tokens and HTTP authorization or
+cookie headers are never written as content.
+
+The official [cache diagnostic endpoint contract](https://developers.openai.com/api/docs/guides/prompt-caching/diagnostics)
+describes `prompt_cache_options.comparison_response_id` and returned streaming
+`response.completed.response.prompt_cache_diagnostics`. This implementation
+**only captures diagnostics actually returned**; it does not add unverified
+cache options to SIWC requests or send extra inference/probe calls. An absent
+server diagnostic does not mean a cache hit and cannot identify eviction or
+routing by itself. The raw usage counters remain the cache-rate evidence.
+
+The active file is limited to 8 MiB, with three numbered backups (about 32 MiB
+in total). Files are owner-only (`0600`); the writer refuses a symlink as an
+active log file. Each record has bounded prefix metadata. Writes are best effort:
+a filesystem failure emits one fixed, content-free warning and never fails
+inference. Rotation and in-memory comparisons are not a cross-process transaction;
+when several Hosts share a state directory, correlate the UUID attempt IDs and
+allow for rotation races. Diagnostics are local metadata and are not included in
+plugin packages or source control. A Host restart is needed to load new code;
+the diagnostics switch is read before each new HTTP attempt and file write.
+
+Automated coverage checks actual prepared-body fingerprints, prefix comparisons,
+auth renewal/capability retries, content exclusion with adversarial extra fields,
+explicit zero vs missing counters, opt-out, rotation, symlinks, and honest failure/
+cancellation outcomes. These are synthetic transport tests, not a live SIWC
+cache-diagnostics acceptance test.
 
 ## Verification
 

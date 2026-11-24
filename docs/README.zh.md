@@ -28,9 +28,11 @@ dsh plugin --profile desktop add "git+https://github.com/iBobbyTS/dsh-plugin-cha
 
 上下文预算影响 DSH 报告的窗口与压缩时机，不是服务端或消费限额。退出登录会清除本地凭据，并说明远端撤销是否已确认。额度文件监控独立于推理账号，需要明确选择文件。
 
-工具新增通过 `additional_tools` 保留在原历史位置。移除和重新启用转换为 developer 指令；执行资格仍由 DSH 管理。上下文压缩复用会话缓存身份，并仅从验证通过的回放元数据继承推理深度；不保证缓存命中。
+工具新增通过 `additional_tools` 保留在原历史位置。移除和重新启用转换为 developer 指令；执行资格仍由 DSH 管理。上下文压缩复用会话缓存身份，并始终使用会话当前选择的推理深度，包括压缩前刚修改的选择；不保证缓存命中。
 
 无头使用、账号限制、附件和配置细节见[授权与模型设置](auth-and-models.md)。
+
+脱敏请求诊断默认开启，保存在 `<stateDir>/request-diagnostics.jsonl`。记录实际 HTTP 请求指纹、缓存身份指纹、服务端请求 ID、用量及返回的缓存诊断，不记录提示词或凭据正文。设置 `requestDiagnostics: false` 可关闭；详见[诊断合同](cache-replay.md#redacted-request-diagnostics)。
 
 ## 文档
 

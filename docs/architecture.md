@@ -65,8 +65,10 @@ On standard GPT-6 family models, the adapter attempts reasoning-effort changes u
 Tool updates use DSH's `toolHistory` and `toolUpdate: "in-history"` projection.
 The adapter places new definitions in ordered `additional_tools` items and
 renders removal/reactivation as developer instructions. DSH's current admitted
-tool set enforces execution eligibility. Compaction without an explicit effort
-inherits only a valid replay snapshot whose preceding input still matches;
+tool set enforces execution eligibility. Compaction reads the current same-route/model agent selection by actual Session ID
+and overrides the auxiliary effort, including defaults materialized by DSH. Without
+a live selection reader, only a valid replay snapshot whose preceding input still
+matches supplies the fallback effort;
 route refusals retain a snapshot of the actual fallback request as well.
 These client-side changes have automated coverage, not a new live cache-rate
 measurement. See [the tool and compaction contract](cache-replay.md#tool-updates-and-compaction-calls).

@@ -43,7 +43,7 @@ export interface NeutralTool {
 export interface NeutralRequest {
   /** Explicit subscription-route refusal, retained with the next successful response. */
   reasoningUpdatesUnsupported?: true
-  /** A compaction call without an explicit effort retains a verified prior selection. */
+  /** Compact fallback: retain a verified prior effort over the auxiliary call default. */
   inheritReasoningEffort?: true
   model: string
   messages: readonly NeutralMessage[]

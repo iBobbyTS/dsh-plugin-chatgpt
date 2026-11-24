@@ -2,6 +2,7 @@ import type { ReadableStreamReadResult } from 'node:stream/web';
 import { type ResponsesEvent } from './events.ts';
 import { type NeutralRequest, type ResponsesBody } from '../convert/request.ts';
 import type { ListedModel } from '../models/describe.ts';
+import type { RequestDiagnostics, DiagnosticContext } from '../diagnostics.ts';
 /** Endpoints this client talks to. */
 export interface ClientEndpoints {
     /** Base URL of the API; defaults to the documented resource. */
@@ -44,6 +45,10 @@ export interface StreamTurnOptions {
     endpoints?: ClientEndpoints;
     signal?: AbortSignal;
     idleTimeoutMs?: number;
+    diagnostics?: {
+        recorder: RequestDiagnostics;
+        context: DiagnosticContext;
+    };
 }
 /** Read a chunk with an idle deadline instead of waiting forever on a live socket. */
 export declare function readWithIdleTimeout(reader: ReadableStreamDefaultReader<Uint8Array>, timeoutMs: number): Promise<ReadableStreamReadResult<Uint8Array>>;

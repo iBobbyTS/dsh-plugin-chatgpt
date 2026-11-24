@@ -27,8 +27,8 @@ it('shares only agent/compaction routing identity and inherits effort only from 
   assert.equal(next.body.input.some(item => item.type === 'configuration_update'), false)
   assert.equal(next.reasoningReplay?.effort, 'xhigh')
   const explicit = prepareResponsesRequest(toNeutralRequest({ ...compact, reasoningEffort: 'low' }, scope))
-  assert.equal(explicit.reasoningReplay?.effort, 'low')
-  assert.ok(explicit.body.input.some(item => item.type === 'configuration_update'))
+  assert.equal(explicit.reasoningReplay?.effort, 'xhigh', 'compact history overrides an auxiliary/default low')
+  assert.equal(explicit.body.input.some(item => item.type === 'configuration_update'), false)
   const edited = { ...compact, messages: [{ role: 'system' as const, content: [{ type: 'text', text: 'Changed' }] }, ...compact.messages.slice(1)] }
   assert.equal(prepareResponsesRequest(toNeutralRequest(edited, scope)).body.reasoning, undefined)
   assert.equal(prepareResponsesRequest(toNeutralRequest(compact, 'other-account')).body.reasoning, undefined)

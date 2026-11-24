@@ -22,7 +22,7 @@ import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 import type {
   AdapterRegistrationHandle, DirectoryRegistrationHandle, GenerateOptions, StreamChunk, LlmResolvedModelInfo,
 } from '@deepseek-ai/dsh-llm'
-import { ChatGptAdapter, isCodedError } from './adapter.ts'
+import { ChatGptAdapter, isCodedError, type CompactionSelection } from './adapter.ts'
 import { ChatGptAuth } from './auth/manager.ts'
 import { ChatGptController } from './controller.ts'
 import { ChatGptSession } from './session.ts'
@@ -54,6 +54,8 @@ export const Config: z<Record<string, unknown>, Config> = z.object({
   modelContextWindowLimits: z.dict(z.number().step(1).min(1024)).volatile(),
   /** SSE idle deadline; default 300000 ms. */
   streamIdleTimeoutMs: z.number().step(1).min(1000).volatile(),
+  /** Redacted Host-only request diagnostics, on unless explicitly disabled. */
+  requestDiagnostics: z.boolean().default(true).volatile(),
 })
 
 /** The configuration one installation supplies, as the harness resolves it. */
@@ -65,6 +67,7 @@ export type Config = {
   contextWindowLimit: Volatile<number | undefined>
   modelContextWindowLimits: Volatile<Record<string, number> | undefined>
   streamIdleTimeoutMs: Volatile<number | undefined>
+  requestDiagnostics: Volatile<boolean | undefined>
 }
 
 /** What this plugin calls itself in diagnostics. */
@@ -208,6 +211,17 @@ export function apply(ctx: Context, config: Config): void {
     contextWindowLimit: () => config.contextWindowLimit.get(),
     modelContextWindowLimits: () => config.modelContextWindowLimits.get(),
     streamIdleTimeoutMs: () => config.streamIdleTimeoutMs.get(),
+    requestDiagnostics: () => config.requestDiagnostics.get(),
+    readCompactionSelection: sessionId => {
+      // Optional public agent-registry face; no process-wide "last effort" cache.
+      const registry = ctx.get('agents') as {
+        get(id: string): { id: string, model: { current(): Readonly<CompactionSelection> | undefined } } | undefined
+      } | undefined
+      const agent = registry?.get(sessionId)
+      if (agent === undefined || agent.id !== sessionId) return undefined
+      const current = agent.model.current()
+      return current === undefined ? undefined : { ...current }
+    },
     // A listing that recovers must clear a cached provider failure in the
     // browser's model selector; see the callback's documentation.
     onListingRecovered: () => { ctx.emit('llm/adapters-updated') },

@@ -42,3 +42,17 @@ Use [README](../README.md). After development edits to a copied `file:` dependen
 ## Release
 
 This fork retains the upstream package name for loading; that does not confer permission to publish to it. The existing release workflow and upstream release history are implementation/history, not authorization. Before a release, confirm this fork's package ownership, target version, and workflow credentials with the maintainer. Use a new approved version, never a fixed historical version copied from an example. Pushing a version tag may publish through the existing workflow.
+
+
+## Request diagnostics
+
+`requestDiagnostics` is a live Host setting, enabled by default. The request,
+response and end records live in `<stateDir>/request-diagnostics.jsonl` with
+three rotated backups. Read [the diagnostic contract](cache-replay.md#redacted-request-diagnostics)
+for the field meanings and privacy boundaries. Compare request records by actual
+session UUID/`sessionSha256`, then join outcomes by `attemptId`. Do not infer
+physical KV reuse or provider-side eviction solely from local prefix hashes.
+
+Tests use temporary state directories and synthetic fetch responses; they do not
+read real credentials, write daily-use diagnostic logs or call a live provider.
+Diagnostic logs and investigations must not be staged or packaged.

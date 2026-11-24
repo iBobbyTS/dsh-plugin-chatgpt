@@ -20,6 +20,7 @@ import { createSseDecoder, decodeEvent, isPlanUsageCode, type ResponsesEvent } f
 import { toResponsesBody, type NeutralRequest, type ResponsesBody } from '../convert/request.ts'
 import { normalizeFailureCode } from './failure.ts'
 import type { ListedModel } from '../models/describe.ts'
+import type { RequestDiagnostics, DiagnosticContext, DiagnosticAttempt, DiagnosticOutcome } from '../diagnostics.ts'
 
 /** Endpoints this client talks to. */
 export interface ClientEndpoints {
@@ -168,6 +169,7 @@ export interface StreamTurnOptions {
   endpoints?: ClientEndpoints
   signal?: AbortSignal
   idleTimeoutMs?: number
+  diagnostics?: { recorder: RequestDiagnostics, context: DiagnosticContext }
 }
 
 /** Read a chunk with an idle deadline instead of waiting forever on a live socket. */
@@ -205,6 +207,31 @@ export async function* streamTurn(options: StreamTurnOptions): AsyncGenerator<Re
   if (!Number.isSafeInteger(idleTimeoutMs) || idleTimeoutMs <= 0) {
     throw new Error('invalid stream idle timeout')
   }
+  const serializedBody = JSON.stringify(body)
+  const headers = headersFor(options.accessToken, body.prompt_cache_key)
+  const endpoint = `${baseOf(options.endpoints)}/responses`
+  const diagnostics = options.diagnostics?.recorder.begin(serializedBody, headers['session_id'], endpoint, options.diagnostics.context)
+  let outcome: DiagnosticOutcome = 'cancelled'
+  try {
+    for await (const event of streamTurnWire(options, serializedBody, headers, endpoint, idleTimeoutMs, diagnostics)) {
+      if (event.kind === 'completed' || event.kind === 'failed' || event.kind === 'incomplete') outcome = event.kind
+      yield event
+    }
+  } catch (error) {
+    outcome = options.signal?.aborted ? 'aborted' : error instanceof ApiError
+      ? error.status !== undefined && error.status >= 400 ? 'http_error'
+        : error.code === 'TIMEOUT' ? 'timeout' : error.code === 'empty_stream' ? 'empty_stream'
+          : error.code === 'stream_ended_early' ? 'stream_ended_early' : 'transport_error'
+      : 'transport_error'
+    throw error
+  } finally { diagnostics?.end(outcome) }
+}
+
+/** Wire mechanics are shared by the normal, renewed-token and capability-fallback attempts. */
+async function* streamTurnWire(
+  options: StreamTurnOptions, serializedBody: string, headers: Record<string, string>, endpoint: string,
+  idleTimeoutMs: number, diagnostics: DiagnosticAttempt | undefined,
+): AsyncGenerator<ResponsesEvent, void, undefined> {
   const connectTimeout = new AbortController()
   const connectSignal = options.signal === undefined
     ? connectTimeout.signal : AbortSignal.any([options.signal, connectTimeout.signal])
@@ -213,19 +240,21 @@ export async function* streamTurn(options: StreamTurnOptions): AsyncGenerator<Re
   }, idleTimeoutMs)
   let response: Response
   try {
-    response = await fetch(`${baseOf(options.endpoints)}/responses`, {
+    response = await fetch(endpoint, {
       method: 'POST',
-      headers: headersFor(options.accessToken, body.prompt_cache_key),
-      body: JSON.stringify(body),
+      headers,
+      body: serializedBody,
       signal: connectSignal,
     })
   } finally {
     clearTimeout(deadline)
   }
+  diagnostics?.response(response)
   if (!response.ok) {
     const errorDeadline = setTimeout(() => connectTimeout.abort(new ApiError('ChatGPT error response body timed out', 'TIMEOUT')), idleTimeoutMs)
     try {
       const body = await response.text()
+      diagnostics?.payload(body)
       throw errorOf(body, response.status)
     } catch (error) {
       if (connectTimeout.signal.aborted) throw connectTimeout.signal.reason
@@ -247,6 +276,7 @@ export async function* streamTurn(options: StreamTurnOptions): AsyncGenerator<Re
         ? decoder.flush()
         : decoder.push(text.decode(value, { stream: true }))
       for (const payload of payloads) {
+        diagnostics?.payload(payload)
         const event = decodeEvent(payload)
         if (event === undefined) continue
         yield event

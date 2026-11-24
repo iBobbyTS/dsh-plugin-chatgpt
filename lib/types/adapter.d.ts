@@ -53,6 +53,12 @@ export interface CodedError extends Error {
  * the other's class.
  */
 export declare function isCodedError(error: unknown): error is CodedError;
+/** Current user selection from the live agent that owns the actual Session ID. */
+export interface CompactionSelection {
+    provider: string;
+    model: string;
+    reasoningEffort?: string;
+}
 /** What the adapter needs from the world around it. */
 export interface ChatGptAdapterOptions {
     /** The credential owner this adapter asks for a usable grant. */
@@ -73,6 +79,10 @@ export interface ChatGptAdapterOptions {
     modelContextWindowLimits?: Readonly<Record<string, number>> | (() => Readonly<Record<string, number>> | undefined);
     /** Maximum idle time waiting for a streaming SSE chunk, in ms. */
     streamIdleTimeoutMs?: number | (() => number | undefined);
+    /** Host-only redacted request evidence; enabled by default when stateDir is supplied. */
+    requestDiagnostics?: boolean | (() => boolean | undefined);
+    /** Read once before compact preparation; pending UI selections take precedence over history/defaults. */
+    readCompactionSelection?: (sessionId: string) => CompactionSelection | undefined;
     /** Clock, so the listing cache can be tested. */
     now?: () => number;
     /**
@@ -87,7 +97,7 @@ export interface ChatGptAdapterOptions {
     onListingRecovered?: () => void;
     /**
      * The installation's state directory, where the roster overrides record
-     * (switches and display names) lives.
+     * (switches and display names) and redacted request diagnostics live.
      *
      * Optional so tests that never touch overrides can omit it; the override
      * methods fail loudly when it is absent rather than pretending to remember
@@ -143,6 +153,8 @@ export interface HarnessRequest {
     signal?: AbortSignal;
     sessionId?: string;
     purpose?: string;
+    /** Internal: reasoningEffort was resolved from the live pre-compaction selection. */
+    compactionEffortResolved?: true;
 }
 /** One message as the harness states it. */
 export interface HarnessMessage {
@@ -186,6 +198,8 @@ export declare class ChatGptAdapter {
     private readonly contextWindowLimit;
     private readonly modelContextWindowLimits;
     private readonly streamIdleTimeoutMs;
+    private readonly diagnostics;
+    private readonly readCompactionSelection;
     private readonly now;
     private readonly onListingRecovered;
     private readonly stateDir;
@@ -352,6 +366,8 @@ export declare class ChatGptAdapter {
      * @returns the model's metadata.
      */
     resolveModel(provider: string, model: string): Promise<HarnessResolvedModel>;
+    /** Snapshot the current selection before awaiting model facts or starting any HTTP attempt. */
+    private compactionRequest;
     /**
      * Stream one turn.
      *

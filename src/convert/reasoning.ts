@@ -74,7 +74,8 @@ export function prepareReasoning(
       updates = saved.updates.slice()
     }
   }
-  const desired = selected ?? (inherit && restored ? effective : 'medium')
+  // Compact history wins over adapter/host defaults when no live selection was supplied.
+  const desired = inherit && restored ? effective : selected ?? 'medium'
   if (desired !== effective) {
     // A follow-up gets its update before the next user. A tool continuation
     // has no new user message, so append the update after its tool results.
@@ -98,7 +99,7 @@ export function prepareReasoningWithoutUpdates(
   const valid = saved !== undefined && saved.updates.length === 0
     && saved.inputCount === previous?.assistantOffset
     && hash(input.slice(0, saved.inputCount)) === saved.inputHash
-  const effort = selected ?? (inherit && valid ? saved.effort : undefined)
+  const effort = inherit && valid ? saved.effort : selected
   return { input, effort, state: {
     baseEffort: effort ?? null, effort: effort ?? 'medium',
     inputCount: input.length, inputHash: hash(input), updates: [],

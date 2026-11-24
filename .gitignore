@@ -7,3 +7,6 @@ node_modules/
 # Packed artifacts
 *.tgz
 .build/
+
+# Local redacted request evidence (never deliver user logs)
+request-diagnostics.jsonl*

@@ -24,6 +24,8 @@
  * @module dsh-plugin-chatgpt/adapter
  */
 
+import { randomUUID } from 'node:crypto'
+import { RequestDiagnostics } from './diagnostics.ts'
 import { ApiError, listModels, streamTurn } from './api/client.ts'
 import { BlockTranslator, type AdapterChunk } from './convert/blocks.ts'
 import { prepareResponsesRequest, type InputPart, type NeutralMessage, type NeutralRequest } from './convert/request.ts'
@@ -104,6 +106,13 @@ const LISTING_TTL_MS = 60_000
 /** Longest hand-set display name accepted for one model. */
 const MAX_MODEL_NAME_LENGTH = 200
 
+/** Current user selection from the live agent that owns the actual Session ID. */
+export interface CompactionSelection {
+  provider: string
+  model: string
+  reasoningEffort?: string
+}
+
 /** What the adapter needs from the world around it. */
 export interface ChatGptAdapterOptions {
   /** The credential owner this adapter asks for a usable grant. */
@@ -124,6 +133,10 @@ export interface ChatGptAdapterOptions {
   modelContextWindowLimits?: Readonly<Record<string, number>> | (() => Readonly<Record<string, number>> | undefined)
   /** Maximum idle time waiting for a streaming SSE chunk, in ms. */
   streamIdleTimeoutMs?: number | (() => number | undefined)
+  /** Host-only redacted request evidence; enabled by default when stateDir is supplied. */
+  requestDiagnostics?: boolean | (() => boolean | undefined)
+  /** Read once before compact preparation; pending UI selections take precedence over history/defaults. */
+  readCompactionSelection?: (sessionId: string) => CompactionSelection | undefined
   /** Clock, so the listing cache can be tested. */
   now?: () => number
   /**
@@ -138,7 +151,7 @@ export interface ChatGptAdapterOptions {
   onListingRecovered?: () => void
   /**
    * The installation's state directory, where the roster overrides record
-   * (switches and display names) lives.
+   * (switches and display names) and redacted request diagnostics live.
    *
    * Optional so tests that never touch overrides can omit it; the override
    * methods fail loudly when it is absent rather than pretending to remember
@@ -187,6 +200,8 @@ export interface HarnessRequest {
   signal?: AbortSignal
   sessionId?: string
   purpose?: string
+  /** Internal: reasoningEffort was resolved from the live pre-compaction selection. */
+  compactionEffortResolved?: true
 }
 
 /** One message as the harness states it. */
@@ -262,7 +277,7 @@ export function toNeutralRequest(request: HarnessRequest, scope?: string): Neutr
     : sessionCacheKey(scope, request.provider, request.sessionId, request.purpose)
   return {
     model: request.model, messages,
-    ...request.purpose === 'compaction' ? { inheritReasoningEffort: true as const } : {},
+    ...request.purpose === 'compaction' && request.compactionEffortResolved !== true ? { inheritReasoningEffort: true as const } : {},
     ...request.system === undefined ? {} : { system: request.system },
     ...request.tools?.length ? { tools: request.tools } : {},
     ...request.reasoningEffort === undefined ? {} : { reasoningEffort: request.reasoningEffort },
@@ -407,6 +422,8 @@ export class ChatGptAdapter {
   private readonly contextWindowLimit: ChatGptAdapterOptions['contextWindowLimit']
   private readonly modelContextWindowLimits: ChatGptAdapterOptions['modelContextWindowLimits']
   private readonly streamIdleTimeoutMs: ChatGptAdapterOptions['streamIdleTimeoutMs']
+  private readonly diagnostics: RequestDiagnostics | undefined
+  private readonly readCompactionSelection: ChatGptAdapterOptions['readCompactionSelection']
   private readonly now: () => number
   private readonly onListingRecovered: (() => void) | undefined
   private readonly stateDir: string | undefined
@@ -430,6 +447,9 @@ export class ChatGptAdapter {
     this.now = options.now ?? (() => Date.now())
     this.onListingRecovered = options.onListingRecovered
     this.stateDir = options.stateDir
+    this.readCompactionSelection = options.readCompactionSelection
+    this.diagnostics = options.stateDir === undefined ? undefined : new RequestDiagnostics(options.stateDir,
+      () => (typeof options.requestDiagnostics === 'function' ? options.requestDiagnostics() : options.requestDiagnostics) !== false)
     this.onModelSwitchesChanged = options.onModelSwitchesChanged
   }
 
@@ -821,6 +841,22 @@ export class ChatGptAdapter {
     return toHarnessResolved(provider, described, contextWindow)
   }
 
+  /** Snapshot the current selection before awaiting model facts or starting any HTTP attempt. */
+  private async compactionRequest(request: HarnessRequest): Promise<HarnessRequest> {
+    if (request.purpose !== 'compaction' || request.sessionId === undefined) return request
+    const live = this.readCompactionSelection?.(request.sessionId)
+    if (live === undefined) return request
+    const selection = { ...live }
+    if (selection.provider !== request.provider || selection.model !== request.model) return request
+    const model = await this.resolveModel(request.provider, request.model)
+    const effort = selection.reasoningEffort ?? model.reasoning?.defaultEffort
+    if (effort === undefined) return request
+    if (!model.reasoning?.efforts.some(level => level.id === effort)) {
+      throw coded('Current compaction reasoning effort is not supported by the selected model', 'UNSUPPORTED_REASONING_EFFORT')
+    }
+    return { ...request, reasoningEffort: effort, compactionEffortResolved: true }
+  }
+
   /**
    * Stream one turn.
    *
@@ -834,10 +870,13 @@ export class ChatGptAdapter {
    */
   async *stream(provider: string, request: HarnessRequest): AsyncGenerator<AdapterChunk, void, undefined> {
     void provider
+    const diagnosticCallId = randomUUID()
+    let diagnosticAttempt = 0
     let translator: BlockTranslator
     let events: AsyncGenerator<ResponsesEvent, void, undefined>
     let primed: IteratorResult<ResponsesEvent>
     try {
+      request = await this.compactionRequest(request);
       ({ events, primed, translator } = await withFreshGrant(
         () => this.auth.usable(request.signal),
         credential => this.auth.renewFor(credential, request.signal),
@@ -863,6 +902,13 @@ export class ChatGptAdapter {
               accessToken: credential.accessToken,
               request: neutral,
               preparedBody: prepared.body,
+              ...this.diagnostics === undefined ? {} : { diagnostics: { recorder: this.diagnostics, context: {
+                callId: diagnosticCallId, attempt: ++diagnosticAttempt, provider: request.provider,
+                ...request.sessionId === undefined ? {} : { sessionId: request.sessionId },
+                ...request.purpose === undefined ? {} : { purpose: request.purpose },
+                ...scope === undefined ? {} : { authorizationScope: scope },
+                capabilityFallback: unsupported === true,
+              } } },
               ...idleTimeoutMs === undefined ? {} : { idleTimeoutMs },
               ...this.baseUrl === undefined ? {} : { endpoints: { baseUrl: this.baseUrl } },
               ...request.signal === undefined ? {} : { signal: request.signal },
